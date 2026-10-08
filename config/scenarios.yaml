@@ -8,7 +8,7 @@ root_causes:
   S1: {name: "SSI mismatch (account or BIC does not match)", quota: 0.015}
   S2: {name: "SSI missing, or a stale record", quota: 0.010}
   S3: {name: "Securities or funding shortfall", quota: 0.015}
-  S4: {name: "Late or missing confirmation", quota: 0.015}
+  S4: {name: "Late or missing confirmation", quota: 0.012}
   S5: {name: "Chain cascade (an upstream fail breaks this trade)", quota: 0.012}
   S6: {name: "Cross-border with a holiday or cutoff mismatch", quota: 0.012}
   S7: {name: "Corporate action around settlement", quota: 0.015}
@@ -41,6 +41,9 @@ coverage:
   overrides:
     H4: {settled: 30, reason: "H4 trades fail by design, so few of them settle"}
   numeric_bins: 5           # quantile bins from the training split
+  # Feature bins with no minimum in validation and test, each with a reason.
+  eval_exempt_features:
+    market_volatility_level: "one value per day, so its bins follow the volatility path; validation is calm by design"
   # Regimes each split must contain. Validation sits between the two volatility spikes.
   expected_regimes:
     train: [R1, R2, R3, R4, R5]

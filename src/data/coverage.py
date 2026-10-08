@@ -73,11 +73,12 @@ def coverage_matrix(splits: dict[str, pd.DataFrame], cfg: dict) -> list[dict]:
     labels = {s: splits[s]["failed"].to_numpy() == 1 for s in SPLITS}
     rows = []
 
-    def add(kind, row_id, name, masks):
+    def add(kind, row_id, name, masks, eval_required=True):
         row = {"kind": kind, "id": row_id, "name": name, "cells": {}, "passed": True}
         for s in SPLITS:
             m, y = masks[s], labels[s]
             required = not (row_id in REGIMES and row_id not in cov["expected_regimes"][s])
+            required &= eval_required or s == "train"
             for label, count in (("failed", int((m & y).sum())), ("settled", int((m & ~y).sum()))):
                 need = _minimum(cov, row_id, s, label) if required else 0
                 ok = count >= need
@@ -87,10 +88,11 @@ def coverage_matrix(splits: dict[str, pd.DataFrame], cfg: dict) -> list[dict]:
 
     for sid in (*SCENARIO_IDS, *COMBO_NAMES):
         add("scenario", sid, names[sid], {s: members[s][sid] for s in SPLITS})
+    exempt = cov.get("eval_exempt_features", {})
     for feature, bins in feature_bins(splits["train"], cov).items():
         for label, select in bins:
             add("feature_bin", f"{feature}={label}", BY_NAME[feature].label,
-                {s: select(splits[s]) for s in SPLITS})
+                {s: select(splits[s]) for s in SPLITS}, eval_required=feature not in exempt)
     return rows
 
 

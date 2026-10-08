@@ -64,7 +64,7 @@ effects:
   ssi_match_status: {mismatch: 2.4, missing: 2.0}
   ssi_age_days: {per_year: 0.35, cap_days: 1100}
   instruction_hour_bucket: {overnight: 0.45, early_morning: 0.30, late: 0.35}
-  hours_to_confirmation: {weight: 1.1, scale_hours: 4.0}        # w * log1p(h / scale)
+  hours_to_confirmation: {weight: 0.9, scale_hours: 4.0}        # w * log1p(h / scale)
   amendment_count: {weight: 0.6}                                # w * log1p(k)
   allocation_delay_hrs: {weight: 0.5, scale_hours: 2.0}         # w * log1p(d / scale)
   chain_depth: {weight: 0.55}                                   # w * log1p(depth)

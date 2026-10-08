@@ -14,6 +14,7 @@ import pandas as pd
 
 from src.config import config_hash
 from src.data import validate as V
+from src.data.coverage import report_markdown, run_coverage
 from src.data.generator import (
     calibrate_intercept,
     effect_weights,
@@ -22,7 +23,6 @@ from src.data.generator import (
     write_json,
     write_parquet,
 )
-from src.data.coverage import report_markdown, run_coverage
 from src.data.reference_data import build_reference, reference_tables
 from src.features.definitions import FEATURES
 from src.hub.publish import publish

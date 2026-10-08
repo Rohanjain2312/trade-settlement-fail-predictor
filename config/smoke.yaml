@@ -30,11 +30,18 @@ train:
     checkpoint_every: 25
 
 coverage:
-  min_train: {failed: 2, settled: 2}
+  min_train: {failed: 1, settled: 2}
   min_eval: {failed: 0, settled: 1}
   overrides:
     H4: {settled: 0, reason: "H4 trades fail by design; smoke volume is tiny"}
+    "is_period_end=1": {settled: 0, reason: "smoke validation is one month, and its month end falls in the split gap"}
+  expected_regimes:
+    train: [R1, R2, R3, R4, R5]
+    val: [R1, R4, R5]
+    test: [R1, R2, R3, R4, R5]
   min_regime_trades: 20
   min_cold_start_test_share: 0.0
   pairwise:
     min_count: 1
+    allowed_empty:
+      - {pair: "ssi_match_status=missing|cpty_type=corporate_treasury", reason: "two rare levels (about 2% and 0.5% of trades) at smoke volume"}

@@ -49,8 +49,8 @@ REASON_GROUPS = {
 REASON_BASE = {"ssi_problem": 0.01, "shortfall": 0.01, "unmatched": 0.01, "other": 0.05}
 
 # Base-population distribution parameters (the scenario injectors add to these).
-P_SSI_MISMATCH = 0.035
-P_SSI_MISSING = 0.012
+P_SSI_MISMATCH = 0.045
+P_SSI_MISSING = 0.015
 SSI_REVERIFY_HAZARD = 1 / 120  # per SSI record per business day
 HOUR_BUCKET_P = {False: [0.08, 0.14, 0.64, 0.14], True: [0.16, 0.20, 0.48, 0.16]}  # by cross-border
 BLOCK_P = {"custodian": 0.08, "broker_dealer": 0.10, "asset_manager": 0.55, "hedge_fund": 0.30,
