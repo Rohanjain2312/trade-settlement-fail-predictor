@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        id: install
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        id: lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: ruff check --output-format=github .
+
+      - name: Unit tests
+        id: unit
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pytest -m "not smoke" -q
+
+      - name: Local smoke pipeline (with injected crash and resume)
+        id: smoke
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pytest -m smoke -q || [ $? -eq 5 ]  # exit 5 = no smoke tests collected yet
+
+      - name: Failure summary
+        if: ${{ failure() }}
+        run: |
+          for s in install:${{ steps.install.outcome }} lint:${{ steps.lint.outcome }} unit:${{ steps.unit.outcome }} smoke:${{ steps.smoke.outcome }}; do
+            name="${s%%:*}"; outcome="${s#*:}"
+            if [ "$outcome" = "failure" ]; then echo "::error title=CI step failed::step '$name' failed, see its annotations and log"; fi
+          done

@@ -1,1 +1,26 @@
-# Small-sample overrides for smoke runs (filled in M1).
+# Smoke-run overrides, merged on top of params.yaml. Every stage runs, on a small sample,
+# and writes only to the -smoke repos. CI uses the same overrides.
+data:
+  n_days: 124               # exactly 6 months from start_date
+  trades_per_day: 300
+  intercept_calibration:
+    trades_per_day: 150
+
+reference:
+  n_counterparties: 120
+  n_securities: 1500
+
+regimes:
+  vol_spikes:
+    - {start: "2024-02-12", business_days: 12, peak: 34.0}
+    - {start: "2024-06-03", business_days: 12, peak: 40.0}
+  ssi_drift_start: "2024-04-01"
+
+split:
+  train_months: [1, 4]
+  val_months: [5, 5]
+  test_months: [6, 6]
+
+train:
+  require_gpu: false
+  test_sample_rows: 5000

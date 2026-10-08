@@ -1,7 +1,105 @@
 # Main configuration. Every number in the app is reproducible from this file and the seed.
+# config/smoke.yaml overrides parts of it for smoke runs.
 seed: 20241008
 
+project:
+  github_repo: Rohanjain2312/trade-settlement-fail-predictor
+  dataset_repo: rohanjain2312/settlement-trades-synthetic
+  model_repo: rohanjain2312/trade-settlement-fail-predictor
+  work_repo: rohanjain2312/trade-settlement-fail-predictor-work
+  space_repo: rohanjain2312/trade-settlement-fail-predictor-demo
+  # Run reports always go to the public model repo, in smoke and full mode.
+  reports_repo: rohanjain2312/trade-settlement-fail-predictor
+  smoke_suffix: "-smoke"
+  dataset_tag: v1
+  model_tag: v1
+
 data:
-  n_days: 500             # business days of history (about 24 months)
+  start_date: "2024-01-02"
+  n_days: 503               # home-market business days from start_date: exactly 24 months
   trades_per_day: 6000
-  target_fail_rate: 0.03  # allowed range 0.02 to 0.05
+  target_fail_rate: 0.03    # allowed range 0.02 to 0.05
+  overall_rate_tolerance: 0.15   # overall fail rate must be within +-15% of target
+  monthly_rate_band: [0.015, 0.06]
+  n_desks: 20
+  # Rolling fail rates are smoothed toward target_fail_rate with this many pseudo-trades.
+  rate_prior_trades: {cpty: 20, security: 10}
+  missing_share:            # values blanked at random (data quality), the label uses the true value
+    ssi_age_days: 0.015
+    hours_to_confirmation: 0.02
+    allocation_delay_hrs: 0.01
+    abs_price_deviation_bps: 0.02
+    notional_vs_cpty_median: 0.01
+  max_missing_share: 0.05
+  intercept_calibration:    # bisection on a lower-volume pilot run over the same days
+    trades_per_day: 800
+    bracket: [-9.0, -1.0]
+    tolerance: 0.0005
+    max_iter: 24
+
+reference:
+  n_counterparties: 300
+  n_securities: 5000
+  late_onboard_share: 0.15  # counterparties that first appear after day 0 (cold start)
+  ssi_drift_share: 0.15     # counterparties whose SSI quality degrades over time (regime R5)
+
+regimes:
+  # Volatility spikes come with a volume surge (regime R2).
+  vol_spikes:
+    - {start: "2024-08-05", business_days: 22, peak: 36.0}
+    - {start: "2025-10-06", business_days: 25, peak: 42.0}
+  vol_baseline: 16.0
+  volume_surge: 0.35        # extra volume at the peak of a spike
+  period_end_volume: 0.25   # extra volume on month-end and quarter-end settlement days
+  ssi_drift_start: "2025-03-03"
+  ssi_drift_max_multiplier: 3.0
+
+# Planted effects on the log-odds of failing. Every term is zero at the clean reference value,
+# so contributions can be read directly. These numbers are published to truth/effect_weights.json.
+effects:
+  ssi_match_status: {mismatch: 2.4, missing: 2.0}
+  ssi_age_days: {per_year: 0.35, cap_days: 1100}
+  instruction_hour_bucket: {overnight: 0.45, early_morning: 0.30, late: 0.35}
+  hours_to_confirmation: {weight: 1.1, scale_hours: 4.0}        # w * log1p(h / scale)
+  amendment_count: {weight: 0.6}                                # w * log1p(k)
+  allocation_delay_hrs: {weight: 0.5, scale_hours: 2.0}         # w * log1p(d / scale)
+  chain_depth: {weight: 0.55}                                   # w * log1p(depth)
+  obligation_coverage_ratio: {weight: 4.0}                      # w * max(0, 1 - ratio)
+  cpty_fail_rate_30d: {weight: 0.8, scale: 0.02}                # w * log1p(rate / scale)
+  cpty_type: {broker_dealer: 0.30, asset_manager: 0.40, hedge_fund: 0.65, corporate_treasury: 0.90}
+  pair_history_trades_90d: {weight: 0.5, scale_trades: 10.0}    # w * exp(-n / scale)
+  security_fail_rate_30d: {weight: 0.45, scale: 0.02}           # w * log1p(rate / scale)
+  corporate_action_in_window: {weight: 1.0}
+  notional_vs_cpty_median: {weight: 0.4}                        # w * max(0, log(x))
+  abs_price_deviation_bps: {weight: 0.25, scale_bps: 50.0}      # w * log1p(bps / scale)
+  asset_class: {etf: 0.15, equity: 0.25, repo: 0.45, corporate_bond: 0.60}
+  is_cross_border: {weight: 0.5}
+  market_volatility_level: {weight: 0.6, floor: 14.0, scale: 10.0}  # w * max(0, v - floor) / scale
+  holiday_in_settlement_window: {weight: 0.45}
+  is_period_end: {weight: 0.35}
+
+interactions:
+  ssi_mismatch_x_cross_border: {weight: 1.0}
+  shortfall_x_security_fail_rate: {weight: 2.0, rate_floor: 0.03, rate_scale: 0.05, cap: 3.0}
+  confirmation_x_overnight: {weight: 0.6}
+
+hidden:
+  cpty_latent_weight: 0.25      # unobserved counterparty risk (never a feature)
+  security_latent_weight: 0.20  # unobserved security propensity (never a feature)
+  noise_sd: 0.35                # per-trade noise on the log-odds
+  auto_repair_prob: 0.35        # H1: an SSI break gets repaired in time
+  late_borrow_prob: 0.35        # H2: a shortfall gets covered by a late borrow
+  mitigation_factor: 0.15       # share of the term left after a repair or borrow
+  unexplained_rate: 0.0015      # H4: clean-looking trades that fail anyway
+  unexplained_boost: 6.0
+
+split:
+  train_months: [1, 16]
+  val_months: [17, 20]
+  test_months: [21, 24]
+  gap_days: 5               # business days dropped at the end of train and validation
+
+train:
+  require_gpu: true
+  ops_capacity_share: 0.02  # share of daily trades ops can work, sets the alert threshold
+  test_sample_rows: 50000

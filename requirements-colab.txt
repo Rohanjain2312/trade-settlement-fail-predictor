@@ -1,0 +1,11 @@
+# Pinned for Colab. Colab already ships numpy, pandas, scipy, matplotlib, and the CUDA stack;
+# do not reinstall or upgrade those. These pins match Colab's preinstalled versions where
+# Colab has the package, so pip only adds what is missing.
+xgboost==3.4.1
+shap==0.52.0
+scikit-learn==1.6.1
+imbalanced-learn==0.14.2
+optuna==4.9.0
+pyarrow==23.0.1
+huggingface_hub==1.33.0
+duckdb==1.3.2
