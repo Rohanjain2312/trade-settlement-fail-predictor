@@ -47,7 +47,7 @@ def suggest(family: str, trial: optuna.Trial) -> dict:
     if family == "logreg":
         return {"C": trial.suggest_float("C", 1e-3, 10.0, log=True)}
     if family == "svm_linear":
-        return {"C": trial.suggest_float("C", 1e-4, 1.0, log=True)}
+        return {"C": trial.suggest_float("C", 1e-4, 0.5, log=True)}
     if family == "svm_rbf":
         return {"C": trial.suggest_float("C", 0.1, 100.0, log=True),
                 "gamma": trial.suggest_float("gamma", 1e-3, 1.0, log=True)}

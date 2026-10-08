@@ -119,10 +119,10 @@ train:
     rows: 200000
     folds: 3
     save_every: 5
-    trials: {logreg: 12, svm_linear: 12, svm_rbf: 10, xgb: 25}
-    rbf_rows: 30000          # kernel SVM cost grows with the square of the rows
+    trials: {logreg: 12, svm_linear: 10, svm_rbf: 6, xgb: 25}
+    rbf_rows: 20000          # kernel SVM cost grows with the square of the rows
   svm_rbf:
-    subsample_rows: 150000   # final fit with cuML on the GPU
+    subsample_rows: 100000   # final fit with cuML on the GPU
     cpu_subsample_rows: 20000  # fallback when cuML is not available
   heldout_scenarios: [S1, S3, S5]
   shap:

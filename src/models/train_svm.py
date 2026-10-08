@@ -24,7 +24,7 @@ def make_linear(C: float, resampling: str, seed: int):
         C=C,
         class_weight="balanced" if resampling == "class_weight" else None,
         dual="auto",
-        max_iter=20000,
+        max_iter=5000,
         random_state=seed,
     )
     return build_pipeline(est, resampling, seed)
