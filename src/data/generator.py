@@ -45,7 +45,7 @@ REASON_GROUPS = {
     "unmatched": ("hours_to_confirmation", "amendment_count", "allocation_delay_hrs",
                   "instruction_hour_bucket", "abs_price_deviation_bps", "confirmation_x_overnight"),
 }
-REASON_BASE = {"ssi_problem": 0.05, "shortfall": 0.05, "unmatched": 0.05, "other": 0.10}
+REASON_BASE = {"ssi_problem": 0.01, "shortfall": 0.01, "unmatched": 0.01, "other": 0.05}
 
 # Base-population distribution parameters (the scenario injectors add to these).
 P_SSI_MISMATCH = 0.035
@@ -263,16 +263,21 @@ def generate_day(t: int, state: GenState, ref: Reference, cfg: dict, intercept: 
     )
     failed = rng.random(n) < prob.sigmoid(logit)
 
-    # Fail reason, in proportion to which groups of terms pushed this trade up the most.
+    # Fail reason: a group of terms is picked with probability proportional to the sum of its
+    # squared excess contributions (above the day's average), so the term that pushed the
+    # trade up the most usually names the reason.
+    def sq_excess(x):
+        return np.maximum(x - x.mean(), 0.0) ** 2
+
     weights = []
     grouped = set()
     for reason in FAIL_REASONS[:3]:
         cols = REASON_GROUPS[reason]
         grouped |= set(cols)
-        excess = sum(np.maximum(terms[c] - terms[c].mean(), 0.0) for c in cols)
-        weights.append(excess + REASON_BASE[reason])
-    other = sum(np.maximum(terms[c] - terms[c].mean(), 0.0) for c in prob.TERMS if c not in grouped)
-    other = other + np.maximum(hidden["cpty_latent_weight"] * z, 0.0) + hidden["unexplained_boost"] * unexplained
+        weights.append(sum(sq_excess(terms[c]) for c in cols) + REASON_BASE[reason])
+    other = sum(sq_excess(terms[c]) for c in prob.TERMS if c not in grouped)
+    other = other + np.maximum(hidden["cpty_latent_weight"] * z, 0.0) ** 2
+    other = other + (hidden["unexplained_boost"] * unexplained) ** 2
     weights.append(other + REASON_BASE["other"])
     W = np.stack(weights, axis=1)
     pick = (rng.random(n)[:, None] > np.cumsum(W / W.sum(axis=1, keepdims=True), axis=1)).sum(axis=1)
