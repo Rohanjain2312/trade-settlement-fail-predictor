@@ -32,11 +32,12 @@ def _save(fig, path: Path) -> None:
     plt.close(fig)
 
 
-def build(app: Path, out: Path) -> list[str]:
-    """Write the plots and RESULTS.md under out. Returns the file names."""
+def build(app: Path, metrics_path: Path, out: Path) -> list[str]:
+    """Write the plots and RESULTS.md under out from the app assets and metrics.json."""
     out.mkdir(parents=True, exist_ok=True)
     J = lambda name: json.loads((app / name).read_text())  # noqa: E731
-    metrics, primary = J("metrics.json")["models"], J("models.json")["primary"]
+    metrics = json.loads(metrics_path.read_text())["models"]
+    primary = J("models.json")["primary"]
     s, truth, held = J("data_summary.json"), J("shap_vs_truth.json"), J("heldout.json")
     svm, inter, lr = J("svm_views.json"), J("interaction_summary.json"), J("lr_coefficients.json")
     sample = pd.read_parquet(app / "app_sample.parquet")
@@ -195,7 +196,7 @@ def build(app: Path, out: Path) -> list[str]:
 def results_md(s, metrics, primary, truth, held, svm, inter, sim) -> str:
     t = {f: metrics[n]["test"] for f, n in primary.items()}
     rows = ["| Model | Resampling | PR-AUC | Recall top 2% | Recall @ precision 0.5 | Brier |", "|---|---|---|---|---|---|"]
-    for n, m in metrics.items():
+    for m in metrics.values():
         x = m["test"]
         rows.append(f"| {FAMILY[m['family']]} | {RES[m['resampling']]} | {x['pr_auc']:.3f} | "
                     f"{x['recall_top_2pct']:.3f} | {x['recall_at_precision_50']:.3f} | {x['brier']:.4f} |")

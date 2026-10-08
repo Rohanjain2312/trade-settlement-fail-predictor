@@ -475,7 +475,8 @@ def stage_explain(ctx: Context) -> list[str]:
 def stage_report(ctx: Context) -> list[str]:
     from src.explain import report
 
-    files = report.build(ctx.workdir / "train/app", ctx.workdir / "train/report")
+    wd = ctx.workdir
+    files = report.build(wd / "train/app", wd / "train/metrics.json", wd / "train/report")
     return [f"train/report/{f}" for f in files]
 
 
