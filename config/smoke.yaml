@@ -3,6 +3,7 @@
 data:
   n_days: 124               # exactly 6 months from start_date
   trades_per_day: 300
+  test_sample_rows: 5000
   intercept_calibration:
     trades_per_day: 300
 
@@ -23,4 +24,7 @@ split:
 
 train:
   require_gpu: false
-  test_sample_rows: 5000
+  xgb:
+    max_rounds: 300
+    patience: 30
+    checkpoint_every: 25

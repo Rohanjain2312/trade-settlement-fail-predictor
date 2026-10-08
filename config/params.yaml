@@ -31,6 +31,7 @@ data:
     abs_price_deviation_bps: 0.02
     notional_vs_cpty_median: 0.01
   max_missing_share: 0.05
+  test_sample_rows: 50000   # test-period trades published for the app
   intercept_calibration:
     # Bisection on a lower-volume pilot run over the same days, then a few full-volume
     # pilot runs that shift the intercept by the remaining gap on the log-odds scale.
@@ -105,4 +106,21 @@ split:
 train:
   require_gpu: true
   ops_capacity_share: 0.02  # share of daily trades ops can work, sets the alert threshold
-  test_sample_rows: 50000
+  # Which resampling variants to train for each model family. The first one is the
+  # published default (logreg.joblib, svm_linear_calibrated.joblib, xgb_model.json).
+  models:
+    logreg: [none]
+    svm_linear: [smote]
+    xgb: [scale_pos_weight]
+  logreg: {C: 1.0}
+  svm_linear: {C: 0.05}
+  xgb:
+    max_depth: 6
+    eta: 0.08
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_weight: 5.0
+    reg_lambda: 1.0
+    max_rounds: 2000
+    patience: 100
+    checkpoint_every: 100

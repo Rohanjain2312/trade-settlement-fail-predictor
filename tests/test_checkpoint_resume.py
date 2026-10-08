@@ -306,3 +306,34 @@ def _assert_same_state(x, y):
             assert u[0] == v[0]
             for p, q in zip(u[1:], v[1:]):
                 np.testing.assert_array_equal(p, q)
+
+
+def test_xgboost_resume_grows_the_same_trees(tmp_path):
+    """Boosting 40 rounds straight equals boosting 20, saving, reloading, and boosting 20 more."""
+    import numpy as np
+    import pandas as pd
+
+    from src.config import load_config
+    from src.features.definitions import FEATURES
+    from src.models import train_xgb
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    X = pd.DataFrame({
+        f.name: (pd.Categorical(rng.choice(f.levels, n), categories=list(f.levels)) if f.levels
+                 else rng.normal(size=n))
+        for f in FEATURES
+    })
+    y = (X["ssi_age_days"] + rng.normal(size=n) > 1.5).astype(int).to_numpy()
+    p = train_xgb.params(load_config("smoke")["train"]["xgb"], "cpu", 7)
+    dtrain, dval = train_xgb.dmatrix(X[:2000], y[:2000]), train_xgb.dmatrix(X[2000:], y[2000:])
+
+    straight, _ = train_xgb.train(p, dtrain, dval, max_rounds=40, patience=1000, every=1000)
+    saved = {}
+    half, _ = train_xgb.train(p, dtrain, dval, max_rounds=20, patience=1000, every=20,
+                              save_progress=lambda b, s: saved.update(b=b.copy(), s=dict(s)))
+    train_xgb.save_booster(saved["b"], tmp_path / "ckpt.json", saved["s"])
+    resume = train_xgb.load_booster(tmp_path / "ckpt.json", p, [dtrain, dval])
+    resumed, state = train_xgb.train(p, dtrain, dval, max_rounds=40, patience=1000, every=1000, resume=resume)
+    assert state["next_iteration"] == 40
+    np.testing.assert_allclose(resumed.predict(dval), straight.predict(dval), rtol=0, atol=1e-6)

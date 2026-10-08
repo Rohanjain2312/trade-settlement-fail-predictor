@@ -142,15 +142,18 @@ class Checkpoint:
                     self._stale.setdefault(later, set()).update(_entry_files(le))
                     le.update(status="stale", units={}, outputs={})
 
-    def save_unit(self, stage: str, unit: str, files: list[str], delete: list[str] = ()) -> None:
-        """Commit one unit of work and the manifest together."""
+    def save_unit(self, stage: str, unit: str, files: list[str], delete: list[str] = (),
+                  upload: bool = True) -> None:
+        """Commit one unit of work and the manifest together. With upload=False the files
+        are only recorded (for example local inputs of a publish step that already live in
+        the work repo), and only the manifest is committed."""
         e = self.manifest["stages"][stage]
         for u in e["units"].values():
             for rel in delete:
                 u.pop(rel, None)
         e["units"][unit] = self._record(files)
         e["updated_at"] = _now()
-        self._commit(files, list(delete), f"{stage}: {unit}")
+        self._commit(files if upload else [], list(delete), f"{stage}: {unit}")
 
     def finish(self, stage: str, outputs: list[str]) -> None:
         """Mark a stage done, commit any outputs not saved yet, then squash history."""

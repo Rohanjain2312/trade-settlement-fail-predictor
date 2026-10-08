@@ -44,6 +44,14 @@ class Store(ABC):
     @abstractmethod
     def squash(self, message: str = "") -> None: ...
 
+    @abstractmethod
+    def revision(self) -> str:
+        """Identifier of the current version of the store's contents."""
+
+    @abstractmethod
+    def tag(self, name: str, message: str = "") -> None:
+        """Point tag `name` at the current version (moving it if it exists)."""
+
 
 class LocalDirStore(Store):
     """A directory on disk standing in for a Hub repo. Used by CI and tests."""
@@ -99,6 +107,20 @@ class LocalDirStore(Store):
 
     def squash(self, message: str = "") -> None:
         return None
+
+    def revision(self) -> str:
+        import hashlib
+
+        h = hashlib.sha256()
+        for path in self.list_files():
+            h.update(path.encode())
+            h.update((self.root / path).read_bytes())
+        return "local-" + h.hexdigest()[:12]
+
+    def tag(self, name: str, message: str = "") -> None:
+        tags = self.root / ".tmp" / "tags"
+        tags.mkdir(parents=True, exist_ok=True)
+        (tags / name).write_text(self.revision())
 
 
 class HubStore(Store):
@@ -200,6 +222,26 @@ class HubStore(Store):
                 self.repo_id, repo_type=self.repo_type, commit_message=message or "squash"
             ),
             f"squash {self.repo_id}",
+        )
+
+    def revision(self) -> str:
+        return self._retry(
+            lambda: self.api.repo_info(self.repo_id, repo_type=self.repo_type).sha, f"info {self.repo_id}"
+        )
+
+    def tag(self, name: str, message: str = "") -> None:
+        from huggingface_hub.errors import HfHubHTTPError
+
+        try:
+            self.api.delete_tag(self.repo_id, tag=name, repo_type=self.repo_type)
+        except HfHubHTTPError as err:
+            if err.response is None or err.response.status_code != 404:
+                raise
+        self._retry(
+            lambda: self.api.create_tag(
+                self.repo_id, tag=name, tag_message=message or None, repo_type=self.repo_type
+            ),
+            f"tag {self.repo_id}",
         )
 
 
