@@ -28,3 +28,13 @@ train:
     max_rounds: 300
     patience: 30
     checkpoint_every: 25
+
+coverage:
+  min_train: {failed: 2, settled: 2}
+  min_eval: {failed: 0, settled: 1}
+  overrides:
+    H4: {settled: 0, reason: "H4 trades fail by design; smoke volume is tiny"}
+  min_regime_trades: 20
+  min_cold_start_test_share: 0.0
+  pairwise:
+    min_count: 1

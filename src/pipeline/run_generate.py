@@ -22,6 +22,7 @@ from src.data.generator import (
     write_json,
     write_parquet,
 )
+from src.data.coverage import report_markdown, run_coverage
 from src.data.reference_data import build_reference, reference_tables
 from src.features.definitions import FEATURES
 from src.hub.publish import publish
@@ -125,6 +126,30 @@ def stage_validate(ctx: Context) -> list[str]:
         raise ValidationFailed(f"data checks failed: {failed}. Details in gen/validation/*.json")
     ctx.state["info:validate"] = summary["checks"]
     return files
+
+
+class CoverageFailed(RuntimeError):
+    pass
+
+
+def stage_coverage(ctx: Context) -> list[str]:
+    cfg, wd = ctx.cfg, ctx.workdir
+    df = load_generated(wd)
+    result = run_coverage(df, split_frames(df, cfg), cfg)
+    write_json(result, wd / "gen/validation/coverage.json")
+    (wd / "gen/reports").mkdir(parents=True, exist_ok=True)
+    (wd / "gen/reports/coverage_report.md").write_text(report_markdown(result, cfg))
+    ctx.report.add_metrics({"coverage": {
+        "passed": result["passed"],
+        "failures": result["failures"][:25],
+        "reason_mix": result["realism"]["reason_mix"],
+        "cold_start_test_share": result["time_coverage"]["cold_start_test_share"],
+        "smallest_pairs": result["pairwise_coverage"]["smallest_pairs"][:5],
+    }})
+    if not result["passed"]:
+        raise CoverageFailed(f"{len(result['failures'])} coverage failures, first: {result['failures'][:3]}")
+    ctx.state["info:coverage"] = {"rows": len(result["matrix"]), "passed": True}
+    return ["gen/validation/coverage.json", "gen/reports/coverage_report.md"]
 
 
 def stage_sample(ctx: Context) -> list[str]:
@@ -242,6 +267,8 @@ def build_stages() -> list[Stage]:
         Stage(StageSpec("generate", GEN_SOURCES, GEN_KEYS), stage_generate),
         Stage(StageSpec("validate", ("src/data/validate.py", "src/pipeline/run_generate.py"),
                         ("seed", "data", "effects", "interactions", "split")), stage_validate),
+        Stage(StageSpec("coverage", ("src/data/coverage.py", "src/data/scenarios.py"),
+                        ("seed", "split", "coverage", "scenarios")), stage_coverage),
         Stage(StageSpec("sample", ("src/models/preprocess.py",), ("seed", "data", "split")), stage_sample),
         Stage(StageSpec("publish_dataset", ("src/hub/publish.py", "src/pipeline/run_generate.py"),
                         ("project", "data", "split")), stage_publish),

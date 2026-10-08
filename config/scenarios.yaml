@@ -29,3 +29,35 @@ hard_negatives:
 
 edge_cases:
   extreme_size_quota: 0.002   # trade size 20x to 80x the counterparty median
+
+# Coverage rules, checked by the coverage stage (src/data/coverage.py). Loaded as cfg["coverage"]
+# so that changing a threshold re-runs the checks without regenerating the data.
+coverage:
+  # Minimum failed and settled trades per row of the coverage matrix (scenarios and feature
+  # bins), per split.
+  min_train: {failed: 300, settled: 300}
+  min_eval: {failed: 100, settled: 100}
+  # Rows with their own minimums, each with a reason.
+  overrides:
+    H4: {settled: 30, reason: "H4 trades fail by design, so few of them settle"}
+  numeric_bins: 5           # quantile bins from the training split
+  # Regimes each split must contain. Validation sits between the two volatility spikes.
+  expected_regimes:
+    train: [R1, R2, R3, R4, R5]
+    val: [R1, R3, R4, R5]
+    test: [R1, R2, R3, R4, R5]
+  stress_regimes: [R2]      # the test period must contain at least one
+  min_regime_trades: 1000
+  min_cold_start_test_share: 0.002   # test trades from counterparties never seen in training
+  pairwise:
+    features: [ssi_match_status, instruction_hour_bucket, cpty_type, asset_class, is_cross_border]
+    min_count: 100
+    allowed_empty: []       # [{pair: "feature=level|feature=level", reason: "..."}]
+  # Rough realism targets from public sources (industry blog ranges, so loose bands).
+  realism:
+    fail_rate: [0.02, 0.035]
+    reason_share:
+      ssi_problem: [0.25, 0.40]
+      shortfall: [0.20, 0.35]
+      unmatched: [0.12, 0.25]
+      other: [0.10, 0.35]

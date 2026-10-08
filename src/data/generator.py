@@ -39,11 +39,12 @@ log = logging.getLogger(__name__)
 
 FAIL_REASONS = ("ssi_problem", "shortfall", "unmatched", "other")
 REASON_GROUPS = {
-    "ssi_problem": ("ssi_match_status", "ssi_age_days", "ssi_mismatch_x_cross_border"),
+    # Instruction timing sits with SSI, matching the "SSI and instructions" feature group.
+    "ssi_problem": ("ssi_match_status", "ssi_age_days", "ssi_mismatch_x_cross_border", "instruction_hour_bucket"),
     "shortfall": ("obligation_coverage_ratio", "shortfall_x_security_fail_rate",
                   "security_fail_rate_30d", "chain_depth", "corporate_action_in_window"),
     "unmatched": ("hours_to_confirmation", "amendment_count", "allocation_delay_hrs",
-                  "instruction_hour_bucket", "abs_price_deviation_bps", "confirmation_x_overnight"),
+                  "abs_price_deviation_bps", "confirmation_x_overnight"),
 }
 REASON_BASE = {"ssi_problem": 0.01, "shortfall": 0.01, "unmatched": 0.01, "other": 0.05}
 
@@ -55,7 +56,7 @@ HOUR_BUCKET_P = {False: [0.08, 0.14, 0.64, 0.14], True: [0.16, 0.20, 0.48, 0.16]
 BLOCK_P = {"custodian": 0.08, "broker_dealer": 0.10, "asset_manager": 0.55, "hedge_fund": 0.30,
            "corporate_treasury": 0.05}
 P_CHAINED = 0.18
-P_SHORTFALL = 0.10
+P_SHORTFALL = 0.12
 PRICE_SIGMA_BPS = {"equity": 12.0, "corporate_bond": 16.0, "government_bond": 8.0, "etf": 10.0, "repo": 6.0}
 P_OFF_MARKET = 0.01
 P_CROSS_VIA_CPTY = 0.35

@@ -53,7 +53,9 @@ def load_config(mode: str, config_dir: Path = CONFIG_DIR, overrides: dict | None
     cfg = _load_yaml(config_dir / "params.yaml")
     scenarios_path = config_dir / "scenarios.yaml"
     if scenarios_path.exists():
-        cfg["scenarios"] = _load_yaml(scenarios_path)
+        scenarios = _load_yaml(scenarios_path)
+        cfg["coverage"] = scenarios.pop("coverage", {})
+        cfg["scenarios"] = scenarios
     if mode == "smoke":
         cfg = deep_merge(cfg, _load_yaml(config_dir / "smoke.yaml"))
     if overrides:

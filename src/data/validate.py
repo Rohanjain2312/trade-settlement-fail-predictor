@@ -329,6 +329,14 @@ def main() -> None:
         "scenarios": scenario_summary(df),
         "checks": run_checks(df, cfg),
     }
+    from src.data.coverage import run_coverage
+    from src.models.preprocess import split_frames
+
+    cov = run_coverage(df, split_frames(df, cfg), cfg)
+    out["coverage"] = {"passed": cov["passed"], "failures": cov["failures"][:40],
+                       "realism": cov["realism"], "time": {k: cov["time_coverage"][k] for k in
+                       ("cold_start_test_share", "test_stress_trades", "months")},
+                       "smallest_pairs": cov["pairwise_coverage"]["smallest_pairs"]}
     for r in out["checks"]:
         r.pop("monthly", None)
         r.pop("coefficients", None)
