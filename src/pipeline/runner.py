@@ -74,6 +74,7 @@ def run_stages(stages: list[Stage], ctx: Context, from_stage: str | None, force:
 
 def write_current_run(workdir: Path, report: RunReporter, mode: str, git_commit: str) -> None:
     """Lets the notebook report a crash that killed the process before Python could."""
+    Path(workdir).mkdir(parents=True, exist_ok=True)
     (Path(workdir) / "current_run.json").write_text(
         json.dumps(
             {
