@@ -1,0 +1,7 @@
+# Main configuration. Every number in the app is reproducible from this file and the seed.
+seed: 20241008
+
+data:
+  n_days: 500             # business days of history (about 24 months)
+  trades_per_day: 6000
+  target_fail_rate: 0.03  # allowed range 0.02 to 0.05

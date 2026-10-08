@@ -1,0 +1,28 @@
+# Local-only planning and interview notes (never commit)
+PLAN.md
+notes/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Local pipeline working dirs and stores
+work/
+artifacts/
+_store/
+_local_store/
+*.sqlite3.lock
+
+# Secrets
+.env
+*.token
+
+# OS
+.DS_Store

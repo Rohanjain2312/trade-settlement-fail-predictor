@@ -1,0 +1,4 @@
+# Controls what the Colab notebooks run. Change with a commit.
+mode: smoke        # smoke | full | auto
+from_stage: null   # re-run from this stage onward
+force: []          # stages to re-run even if done
