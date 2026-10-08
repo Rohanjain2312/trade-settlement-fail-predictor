@@ -63,3 +63,15 @@ def test_shap_vs_truth_flags_a_wrong_ranking():
     bad = SV.shap_vs_truth(flipped, true)
     assert not bad["strong_above_weak"] and bad["spearman"] < 0
     assert [r["feature"] for r in good["rows"]][:1] and len(good["rows"]) == len(FEATURE_NAMES)
+
+
+def test_support_vector_count_handles_sklearn_and_cuml():
+    from types import SimpleNamespace
+
+    from src.models.train_svm import support_vector_count
+
+    def pipe(n):
+        return SimpleNamespace(named_steps={"model": SimpleNamespace(n_support_=n)})
+
+    assert support_vector_count(pipe(np.array([120, 30]))) == 150  # scikit-learn: per class
+    assert support_vector_count(pipe(150)) == 150  # cuML: total

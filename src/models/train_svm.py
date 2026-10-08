@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.frozen import FrozenEstimator
 from sklearn.svm import SVC, LinearSVC
@@ -56,4 +57,5 @@ def calibrate(fitted_pipeline, X_val, y_val, method: str = "sigmoid"):
 def support_vector_count(fitted_pipeline) -> int | None:
     model = fitted_pipeline.named_steps["model"]
     n = getattr(model, "n_support_", None)
-    return None if n is None else int(sum(n))
+    # scikit-learn gives one count per class, cuML gives the total.
+    return None if n is None else int(np.sum(np.atleast_1d(n)))
