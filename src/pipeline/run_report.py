@@ -19,6 +19,7 @@ import re
 import sys
 import time
 import traceback
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,6 +64,8 @@ def setup_logging(log_path: Path) -> None:
         handler.setFormatter(fmt)
         root.addHandler(handler)
     logging.captureWarnings(True)
+    # The private work repo is a model repo that holds Parquet checkpoints on purpose.
+    warnings.filterwarnings("ignore", message="It seems that you are about to commit a data file")
     for noisy in ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub.file_download"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
