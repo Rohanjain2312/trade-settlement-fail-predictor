@@ -171,7 +171,7 @@ def build_calendar(cfg: dict) -> Calendar:
     uniq = list(dict.fromkeys(months))
     month_index = np.array([uniq.index(m) + 1 for m in months], dtype=np.int16)
     last_two = set()
-    for (y, mo), last in last_of_month.items():
+    for last in last_of_month.values():
         i = ext.index(last)
         last_two |= {ext[i], ext[i - 1]} if i > 0 else {ext[i]}
     trade_month_end = np.array([d in last_two for d in bdays])
@@ -277,7 +277,7 @@ def build_reference(cfg: dict) -> Reference:
 
     class_p = np.array([ASSET_CLASS_SHARE[a] for a in ASSET_CLASSES])
     sec_class = rng.choice(len(ASSET_CLASSES), size=n_sec, p=class_p / class_p.sum())
-    popularity = rng.lognormal(0.0, 1.5, n_sec)
+    popularity = rng.lognormal(0.0, 1.2, n_sec)
     sec_market = np.where(rng.random(n_sec) < 0.15, rng.integers(1, len(MARKETS), n_sec), HOME)
     sec_latent = rng.normal(0.0, 1.0, n_sec) + np.array(
         [ASSET_CLASS_PROPENSITY_MEAN[ASSET_CLASSES[a]] for a in sec_class]

@@ -5,7 +5,7 @@
 # are not forced to fail and hard negatives arise naturally.
 
 root_causes:
-  S1: {name: "SSI mismatch (account or BIC does not match)", quota: 0.012}
+  S1: {name: "SSI mismatch (account or BIC does not match)", quota: 0.015}
   S2: {name: "SSI missing, or a stale record", quota: 0.010}
   S3: {name: "Securities or funding shortfall", quota: 0.015}
   S4: {name: "Late or missing confirmation", quota: 0.015}

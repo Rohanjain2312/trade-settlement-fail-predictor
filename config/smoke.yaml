@@ -4,7 +4,7 @@ data:
   n_days: 124               # exactly 6 months from start_date
   trades_per_day: 300
   intercept_calibration:
-    trades_per_day: 150
+    trades_per_day: 300
 
 reference:
   n_counterparties: 120

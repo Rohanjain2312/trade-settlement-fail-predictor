@@ -45,12 +45,12 @@ REASON_GROUPS = {
     "unmatched": ("hours_to_confirmation", "amendment_count", "allocation_delay_hrs",
                   "instruction_hour_bucket", "abs_price_deviation_bps", "confirmation_x_overnight"),
 }
-REASON_BASE = {"ssi_problem": 0.05, "shortfall": 0.05, "unmatched": 0.05, "other": 0.25}
+REASON_BASE = {"ssi_problem": 0.05, "shortfall": 0.05, "unmatched": 0.05, "other": 0.10}
 
 # Base-population distribution parameters (the scenario injectors add to these).
-P_SSI_MISMATCH = 0.022
-P_SSI_MISSING = 0.007
-SSI_REVERIFY_HAZARD = 1 / 150  # per SSI record per business day
+P_SSI_MISMATCH = 0.035
+P_SSI_MISSING = 0.012
+SSI_REVERIFY_HAZARD = 1 / 120  # per SSI record per business day
 HOUR_BUCKET_P = {False: [0.08, 0.14, 0.64, 0.14], True: [0.16, 0.20, 0.48, 0.16]}  # by cross-border
 BLOCK_P = {"custodian": 0.08, "broker_dealer": 0.10, "asset_manager": 0.55, "hedge_fund": 0.30,
            "corporate_treasury": 0.05}
@@ -85,7 +85,7 @@ class GenState:
 def init_state(ref: Reference, cfg: dict) -> GenState:
     rng = np.random.default_rng([cfg["seed"], 2])
     start = ref.cal.ords[0]
-    age = rng.exponential(210.0, (ref.n_cpty, len(ASSET_CLASSES)))
+    age = rng.exponential(168.0, (ref.n_cpty, len(ASSET_CLASSES)))
     return GenState(day=0, next_trade_id=0, ssi_verified_ord=(start - age).astype(np.int64))
 
 
@@ -388,7 +388,21 @@ def calibrate_intercept(ref: Reference, cfg: dict) -> dict:
             hi = mid
         else:
             lo = mid
-    return {"intercept": mid, "target": target, "pilot_trades_per_day": tpd, "history": history}
+    # Volume-dependent features (pair history, rolling rates) shift the rate at full volume,
+    # so finish with full-volume pilots. log-odds(rate) moves almost one for one with the
+    # intercept, so each step closes nearly all of the remaining gap.
+    full = cfg["data"]["trades_per_day"]
+    intercept = mid
+    if tpd < full:
+        logit = lambda p: np.log(p / (1 - p))  # noqa: E731
+        for _ in range(c["refine_steps"]):
+            rate = pilot_fail_rate(ref, cfg, intercept, full)
+            history.append({"intercept": intercept, "fail_rate": rate, "trades_per_day": full})
+            log.info("calibration at full volume: intercept %.4f -> fail rate %.4f", intercept, rate)
+            if abs(rate - target) <= c["tolerance"]:
+                break
+            intercept += logit(target) - logit(rate)
+    return {"intercept": intercept, "target": target, "pilot_trades_per_day": tpd, "history": history}
 
 
 # ---- months and checkpoints -----------------------------------------------------------------

@@ -210,7 +210,7 @@ def check_lr_recovery(df: pd.DataFrame, cfg: dict, importance: dict[str, float])
     rho = stats.spearmanr([lr_importance[n] for n in FEATURE_NAMES], [importance[n] for n in FEATURE_NAMES])[0]
     return {
         "name": "lr_recovers_planted_effects",
-        "passed": not wrong_sign and rho >= 0.5,
+        "passed": bool(not wrong_sign and rho >= 0.5),
         "wrong_sign": wrong_sign,
         "rank_correlation_with_truth": round(float(rho), 3),
         "coefficients": {k: round(float(v), 4) for k, v in coef.items()},

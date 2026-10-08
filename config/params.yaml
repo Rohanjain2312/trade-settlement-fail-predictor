@@ -31,11 +31,14 @@ data:
     abs_price_deviation_bps: 0.02
     notional_vs_cpty_median: 0.01
   max_missing_share: 0.05
-  intercept_calibration:    # bisection on a lower-volume pilot run over the same days
+  intercept_calibration:
+    # Bisection on a lower-volume pilot run over the same days, then a few full-volume
+    # pilot runs that shift the intercept by the remaining gap on the log-odds scale.
     trades_per_day: 800
-    bracket: [-9.0, -1.0]
+    bracket: [-12.0, -1.0]
     tolerance: 0.0005
     max_iter: 24
+    refine_steps: 3
 
 reference:
   n_counterparties: 300
@@ -74,7 +77,7 @@ effects:
   abs_price_deviation_bps: {weight: 0.25, scale_bps: 50.0}      # w * log1p(bps / scale)
   asset_class: {etf: 0.15, equity: 0.25, repo: 0.45, corporate_bond: 0.60}
   is_cross_border: {weight: 0.5}
-  market_volatility_level: {weight: 0.6, floor: 14.0, scale: 10.0}  # w * max(0, v - floor) / scale
+  market_volatility_level: {weight: 0.45, floor: 14.0, scale: 10.0}  # w * max(0, v - floor) / scale
   holiday_in_settlement_window: {weight: 0.45}
   is_period_end: {weight: 0.35}
 

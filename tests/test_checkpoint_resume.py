@@ -283,4 +283,26 @@ def test_generator_restart_continues_with_identical_data(tmp_path, monkeypatch):
     monkeypatch.setattr(generator, "generate_day", lambda t, *a, **k: (calls.append(t), real_day(t, *a, **k))[1])
     resumed = _run_generator(tmp_path / "b", cfg, "second")
     assert min(calls) == 21  # month 1 (21 business days) was not generated again
-    assert _store_digest(resumed) == _store_digest(clean)
+    # The data files are byte-identical. The final state is compared by content, because a
+    # pickle of reloaded numpy arrays can differ in bytes while holding the same values.
+    state = "gen/state/state_2024-03.pkl"
+    a, b = _store_digest(clean), _store_digest(resumed)
+    assert {k: v for k, v in a.items() if k != state} == {k: v for k, v in b.items() if k != state}
+    _assert_same_state(generator.load_state(clean.root / state), generator.load_state(resumed.root / state))
+
+
+def _assert_same_state(x, y):
+    import numpy as np
+
+    assert (x.day, x.next_trade_id) == (y.day, y.next_trade_id)
+    np.testing.assert_array_equal(x.ssi_verified_ord, y.ssi_verified_ord)
+    assert list(x.outcomes) == list(y.outcomes)
+    for k in x.outcomes:
+        for u, v in zip(x.outcomes[k], y.outcomes[k]):
+            np.testing.assert_array_equal(u, v)
+    for xs, ys in ((x.pair_days, y.pair_days), (x.notional_days, y.notional_days)):
+        assert len(xs) == len(ys)
+        for u, v in zip(xs, ys):
+            assert u[0] == v[0]
+            for p, q in zip(u[1:], v[1:]):
+                np.testing.assert_array_equal(p, q)
