@@ -2,6 +2,6 @@
 #   smoke: every stage on a small sample, writes only to the -smoke repos
 #   full:  the real run
 #   auto:  smoke first if no smoke run has passed for this commit, then full
-mode: smoke
+mode: auto
 from_stage: null   # re-run this stage and every later one
 force: []          # re-run these stages (and every later one) even if done
