@@ -213,7 +213,7 @@ def model_card(cfg: dict, wd: Path) -> str:
     gh, ds = cfg["project"]["github_repo"], cfg["project"]["dataset_repo"]
     rows = ["| Model | Resampling | PR-AUC | Recall in top 2% | Recall at precision 0.5 | Brier |",
             "|---|---|---|---|---|---|"]
-    for name, r in m.items():
+    for r in m.values():
         t = r["test"]
         rows.append(f"| {r['family']} | {r['resampling']} | {t['pr_auc']:.3f} | {t['recall_top_2pct']:.3f} | "
                     f"{t['recall_at_precision_50']:.3f} | {t['brier']:.4f} |")

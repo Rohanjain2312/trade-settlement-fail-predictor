@@ -32,7 +32,7 @@ def synthetic_note() -> None:
 
 def metrics_table(metrics: dict) -> pd.DataFrame:
     rows = []
-    for name, m in metrics["models"].items():
+    for m in metrics["models"].values():
         t = m["test"]
         rows.append({
             "Model": FAMILY_LABEL.get(m["family"], m["family"]),

@@ -24,7 +24,7 @@ def test_notebook_has_two_cells_and_runtime(name):
     module, gpu = EXPECTED[name]
     assert [c.cell_type for c in nb.cells] == ["code", "code"]
     setup, run = (c.source for c in nb.cells)
-    assert "git clone" in setup and "requirements-colab.txt" in setup and "HF_TOKEN" in setup
+    assert '"git", "clone"' in setup and "requirements-colab.txt" in setup and "HF_TOKEN" in setup
     assert "src.pipeline.setup" in setup
     assert module in run and "--crashed" in run
     assert all(not c.outputs for c in nb.cells)
