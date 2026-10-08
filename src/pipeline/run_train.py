@@ -394,6 +394,82 @@ def stage_shap_truth(ctx: Context) -> list[str]:
     return ["train/shap/shap_vs_truth.json", "train/shap/test_sample_true_shap.npy"]
 
 
+# ---- precomputed explanation assets for the app -----------------------------------------------
+
+def stage_explain(ctx: Context) -> list[str]:
+    from sklearn.linear_model import LogisticRegression
+
+    from src.explain import app_assets as A
+    from src.explain import svm_views as SVM
+    from src.models.preprocess import build_pipeline
+
+    cfg, wd = ctx.cfg, ctx.workdir
+    app = wd / "train/app"
+    app.mkdir(parents=True, exist_ok=True)
+    splits = ctx.state["splits"]
+    full = load_trades(wd / "dataset")
+    write_json(A.features_json(), app / "features.json")
+    write_json(A.data_summary(full, splits, cfg), app / "data_summary.json")
+    write_json(A.feature_bins(full), app / "feature_bins.json")
+    write_json(A.coverage_summary(full, splits, cfg), app / "coverage.json")
+    del full
+
+    names = {fam: primary(cfg, fam) for fam in FAMILIES}
+    cals = {fam: joblib.load(wd / calibrated_path(n)) for fam, n in names.items()}
+    sample = ctx.state["test_sample"]
+    Xs, _ = xy(sample)
+    xgb_s = cals["xgb"].predict_proba(Xs)[:, 1]
+    rng = np.random.default_rng(cfg["seed"])
+    top = np.argsort(-xgb_s, kind="stable")[:300]
+    rand = rng.choice(len(Xs), size=min(cfg["train"]["shap"]["app_rows"], len(Xs)), replace=False)
+    rows = np.unique(np.concatenate([rand, top]))
+    Xr = Xs.iloc[rows]
+    scores = {fam: cals[fam].predict_proba(Xr)[:, 1] for fam in FAMILIES}
+    svm_raw = joblib.load(wd / model_path(names["svm_linear"]))
+    scores["svm_linear_raw"] = svm_raw.decision_function(Xr)
+    bst, _ = train_xgb.load_booster(wd / model_path(names["xgb"]))
+    bst.set_param({"device": ctx.device})
+    inter = train_xgb.contributions(bst, Xr, interactions=True)
+    idx = {n: i for i, n in enumerate(FEATURE_NAMES)}
+    planted = {k: inter[:, idx[a], idx[b]] + inter[:, idx[b], idx[a]] for k, (a, b) in SV.PLANTED_INTERACTIONS.items()}
+    phi = np.load(wd / "train/shap/test_sample_shap.npy")[rows]
+    phi_true = np.load(wd / "train/shap/test_sample_true_shap.npy")[rows]
+    A.app_sample(sample, scores, phi, phi_true, planted, rows, np.isin(rows, top)).to_parquet(
+        app / "app_sample.parquet", index=False)
+
+    y_r = sample["failed"].to_numpy()[rows]
+    s_r = scores["xgb"]
+    picks = {"caught fail (high score)": int(np.argmax(np.where(y_r == 1, s_r, -1))),
+             "settled trade (low score)": int(np.argmin(np.where(y_r == 0, s_r, 2))),
+             "missed fail (low score)": int(np.argmin(np.where(y_r == 1, s_r, 2)))}
+    state = json.loads((wd / (model_path(names["xgb"]) + ".state.json")).read_text())
+    write_json(A.xgb_views(bst, state, Xr.reset_index(drop=True), picks), app / "xgb_views.json")
+
+    importance = json.loads((wd / "train/shap/global_importance.json").read_text())["importance"]
+    continuous = [n for n in sorted(importance, key=lambda n: -importance[n]) if BY_NAME[n].kind in ("numeric", "integer")]
+    pair = (continuous[0], continuous[1])
+    Xt, yt = _xy(ctx, "test")
+    raw_svms = {n: joblib.load(wd / model_path(n)) for n in model_names(cfg, "svm_linear")}
+    write_json({
+        "boundary": SVM.boundary_views(splits["train"], pair, cfg["seed"]),
+        "smote": SVM.smote_view(splits["train"], pair, cfg["seed"]),
+        "leakage": SVM.leakage_check(splits["train"], splits["test"],
+                                     build_pipeline(LogisticRegression(), "none", 0).named_steps["encode"], cfg["seed"]),
+        "default_threshold": SVM.default_threshold_effect(raw_svms, Xt, yt),
+        "platt": SVM.platt_params(cals["svm_linear"]),
+        "svm_model": names["svm_linear"],
+    }, app / "svm_views.json")
+
+    sim_scores = {fam: cals[fam].predict_proba(Xt)[:, 1] for fam in ("logreg", "svm_linear", "xgb")}
+    A.sim_trades(splits["test"], sim_scores).to_parquet(app / "sim_trades.parquet", index=False)
+    heldout = [json.loads(p.read_text()) for p in sorted((wd / "train/heldout").glob("*.json"))]
+    write_json(heldout, app / "heldout.json")
+    for name in ("global_importance.json", "shap_vs_truth.json", "interaction_summary.json"):
+        (app / name).write_text((wd / "train/shap" / name).read_text())
+    write_json({"primary": names, "dataset_revision": ctx.ckpt.dataset_revision}, app / "models.json")
+    return sorted(f"train/app/{p.name}" for p in app.iterdir() if p.is_file())
+
+
 # ---- publishing ------------------------------------------------------------------------------
 
 def model_card(cfg: dict, wd: Path) -> str:
@@ -494,6 +570,7 @@ def stage_publish_models(ctx: Context) -> list[str]:
 def stage_deploy_space(ctx: Context) -> list[str]:
     cfg, wd = ctx.cfg, ctx.workdir
     assets = {"metrics.json": "train/metrics.json", "feature_schema.json": "train/feature_schema.json"}
+    assets.update({p.name: f"train/app/{p.name}" for p in sorted((wd / "train/app").glob("*")) if p.is_file()})
     files = deploy_space.build_space_dir(cfg, wd, assets)
     from src.config import repo_ids
 
@@ -525,9 +602,11 @@ def build_stages() -> list[Stage]:
         Stage(spec("shap", "src/explain/shap_views.py"), stage_shap),
         Stage(spec("shap_truth", "src/explain/shap_views.py", "src/data/probability.py",
                    keys=(*TRAIN_KEYS, "effects", "interactions")), stage_shap_truth),
+        Stage(spec("explain", "src/explain/*.py", "src/sim/*.py", "src/data/coverage.py",
+                   keys=(*TRAIN_KEYS, "coverage")), stage_explain),
         Stage(spec("publish_models", "src/hub/publish.py", "src/pipeline/run_train.py",
                    keys=("project", *TRAIN_KEYS)), stage_publish_models),
-        Stage(StageSpec("deploy_space", ("app/*", "src/hub/deploy_space.py"), ("project",), True),
+        Stage(StageSpec("deploy_space", ("app/*", "src/hub/deploy_space.py", "src/sim/*.py"), ("project",), True),
               stage_deploy_space),
     ]
 

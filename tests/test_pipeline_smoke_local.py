@@ -128,7 +128,9 @@ def test_space_files_and_app_run(smoke_run, monkeypatch):
 
     space = smoke_run["stores"]["space"]
     files = set(space.list_files())
-    for f in ("README.md", "Dockerfile", "requirements.txt", "streamlit_app.py", "assets/metrics.json"):
+    for f in ("README.md", "Dockerfile", "requirements.txt", "streamlit_app.py", "simulate_queue.py",
+              "assets/metrics.json", "assets/app_sample.parquet", "assets/svm_views.json", "assets/xgb_views.json",
+              "assets/sim_trades.parquet", "assets/coverage.json", "assets/shap_vs_truth.json"):
         assert f in files
     readme = (space.root / "README.md").read_text()
     assert "sdk: docker" in readme and "app_port: 8501" in readme and "synthetic" in readme.lower()
@@ -137,3 +139,13 @@ def test_space_files_and_app_run(smoke_run, monkeypatch):
     at.run()
     assert not at.exception, [e.message for e in at.exception]
     assert any("synthetic" in i.value.lower() for i in at.info)
+    assert len(at.tabs) == 5
+    # Exercise the interactive views: RBF kernel, another trade, another model in the simulator.
+    at.radio(key="svm_kernel").set_value("rbf").run()
+    at.select_slider(key="svm_C").set_value(100.0).run()
+    trades = at.selectbox(key="trade").options
+    at.selectbox(key="trade").set_value(trades[-1]).run()
+    at.selectbox(key="sim_model").set_value("logreg").run()
+    at.selectbox(key="interaction").set_value("confirmation_x_overnight").run()
+    at.toggle(key="all_variants").set_value(False).run()
+    assert not at.exception, [e.message for e in at.exception]

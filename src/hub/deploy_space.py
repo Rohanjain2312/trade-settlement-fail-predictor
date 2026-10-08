@@ -19,6 +19,8 @@ from src.pipeline.store import Store
 log = logging.getLogger(__name__)
 
 APP_FILES = ("streamlit_app.py", "requirements.txt", "Dockerfile")
+# Repo files copied into the Space so the app can import them.
+SHARED_FILES = {"simulate_queue.py": "src/sim/simulate_queue.py"}
 KEEP = {".gitattributes"}
 
 
@@ -55,6 +57,9 @@ def build_space_dir(cfg: dict, workdir: Path, assets: dict[str, str], out: str =
     files = []
     for name in APP_FILES:
         shutil.copy2(ROOT / "app" / name, root / name)
+        files.append(name)
+    for name, src in SHARED_FILES.items():
+        shutil.copy2(ROOT / src, root / name)
         files.append(name)
     (root / "README.md").write_text(space_readme(cfg))
     files.append("README.md")
