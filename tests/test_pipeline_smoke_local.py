@@ -108,7 +108,8 @@ def test_models_metrics_and_reports_were_published(smoke_run):
     for f in ("README.md", "logreg.joblib", "svm_linear_calibrated.joblib", "svm_rbf_calibrated.joblib",
               "xgb_model.json", "xgb_calibrated.joblib", "feature_schema.json", "metrics.json",
               "preprocessor.joblib", "shap/shap_vs_truth.json", "shap/global_importance.json",
-              "shap/interaction_summary.json", "heldout/S1.json"):
+              "shap/interaction_summary.json", "heldout/S1.json", "report/RESULTS.md", "report/shap_beeswarm.png",
+              "report/svm_boundary.png", "report/simulator.png"):
         assert f in files
     metrics = json.loads((stores["model"].root / "metrics.json").read_text())
     assert len(metrics["models"]) == 12  # 4 model families x 3 resampling variants
@@ -116,6 +117,8 @@ def test_models_metrics_and_reports_were_published(smoke_run):
         assert 0.0 < m["test"]["pr_auc"] <= 1.0
         assert m["test"]["pr_auc"] > m["test"]["base_rate"]  # better than random ranking
         assert "S1" in m["per_scenario"] and "S1+S6" in m["per_scenario"]
+    results = (stores["model"].root / "report/RESULTS.md").read_text()
+    assert "synthetic" in results.lower() and "![SHAP vs truth](shap_vs_truth.png)" in results
     truth = json.loads((stores["model"].root / "shap/shap_vs_truth.json").read_text())
     assert len(truth["rows"]) == 20 and -1 <= truth["spearman"] <= 1
     latest = json.loads((stores["reports"].root / "runs/latest.json").read_text())
@@ -130,7 +133,8 @@ def test_space_files_and_app_run(smoke_run, monkeypatch):
     files = set(space.list_files())
     for f in ("README.md", "Dockerfile", "requirements.txt", "streamlit_app.py", "simulate_queue.py",
               "assets/metrics.json", "assets/app_sample.parquet", "assets/svm_views.json", "assets/xgb_views.json",
-              "assets/sim_trades.parquet", "assets/coverage.json", "assets/shap_vs_truth.json"):
+              "assets/sim_trades.parquet", "assets/coverage.json", "assets/shap_vs_truth.json",
+              "assets/lr_coefficients.json"):
         assert f in files
     readme = (space.root / "README.md").read_text()
     assert "sdk: docker" in readme and "app_port: 8501" in readme and "synthetic" in readme.lower()
@@ -148,4 +152,5 @@ def test_space_files_and_app_run(smoke_run, monkeypatch):
     at.selectbox(key="sim_model").set_value("logreg").run()
     at.selectbox(key="interaction").set_value("confirmation_x_overnight").run()
     at.toggle(key="all_variants").set_value(False).run()
+    at.slider(key="lr_n").set_value(8).run()
     assert not at.exception, [e.message for e in at.exception]

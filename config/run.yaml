@@ -3,5 +3,5 @@
 #   full:  the real run
 #   auto:  smoke first if no smoke run has passed for this commit, then full
 mode: auto
-from_stage: null   # re-run this stage and every later one
+from_stage: explain   # re-run this stage and every later one (stage functions changed)
 force: []          # re-run these stages (and every later one) even if done

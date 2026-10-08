@@ -467,7 +467,16 @@ def stage_explain(ctx: Context) -> list[str]:
     for name in ("global_importance.json", "shap_vs_truth.json", "interaction_summary.json"):
         (app / name).write_text((wd / "train/shap" / name).read_text())
     write_json({"primary": names, "dataset_revision": ctx.ckpt.dataset_revision}, app / "models.json")
+    lr_raw = joblib.load(wd / model_path(names["logreg"]))
+    write_json(train_logreg.coefficient_table(lr_raw), app / "lr_coefficients.json")
     return sorted(f"train/app/{p.name}" for p in app.iterdir() if p.is_file())
+
+
+def stage_report(ctx: Context) -> list[str]:
+    from src.explain import report
+
+    files = report.build(ctx.workdir / "train/app", ctx.workdir / "train/report")
+    return [f"train/report/{f}" for f in files]
 
 
 # ---- publishing ------------------------------------------------------------------------------
@@ -506,6 +515,21 @@ def model_card(cfg: dict, wd: Path) -> str:
         "- `models/` and `calibrated/`: every variant (no resampling, class weights, SMOTENC)",
         "- `metrics.json`: every model overall and per scenario; `shap/`: SHAP values and the truth check; "
         "`heldout/`: the held-out scenario experiment",
+        "",
+        "## Intended use",
+        "",
+        "A portfolio demonstration of predicting trade settlement fails: data generation, leakage-safe "
+        "resampling, time-based evaluation, calibration, and explanation. Use it to study the approach. "
+        "Do not use it to make decisions about real trades: the features, effects, and rates are synthetic, and a "
+        "real model would need real data, monitoring, and validation.",
+        "",
+        "## Limitations",
+        "",
+        "- The data covers the scenarios defined in the generator only. Partial settlements, buy-ins, "
+        "regulation-specific penalty mechanics, and market-wide outages are out of scope.",
+        "- The test period is more stressed than validation, so calibrated probabilities run low there; "
+        "real deployments should recalibrate after drift.",
+        "- SHAP explains this model on this data. It matches the planted truth here, which real data cannot confirm.",
         "",
         "## Test metrics (synthetic test period, calibrated scores)",
         "",
@@ -560,6 +584,8 @@ def stage_publish_models(ctx: Context) -> list[str]:
             mapping[f"shap/{p.name}"] = f"train/shap/{p.name}"
     for p in sorted((wd / "train/heldout").glob("*.json")):
         mapping[f"heldout/{p.name}"] = f"train/heldout/{p.name}"
+    for p in sorted((wd / "train/report").glob("*")):
+        mapping[f"report/{p.name}"] = f"train/report/{p.name}"
     store = ctx.stores["model"]
     publish(ctx, "publish_models", store, mapping, "publish/model", message="publish models")
     store.tag(cfg["project"]["model_tag"], "models trained on synthetic data")
@@ -604,6 +630,7 @@ def build_stages() -> list[Stage]:
                    keys=(*TRAIN_KEYS, "effects", "interactions")), stage_shap_truth),
         Stage(spec("explain", "src/explain/*.py", "src/sim/*.py", "src/data/coverage.py",
                    keys=(*TRAIN_KEYS, "coverage")), stage_explain),
+        Stage(spec("report", "src/explain/report.py", "src/sim/*.py"), stage_report),
         Stage(spec("publish_models", "src/hub/publish.py", "src/pipeline/run_train.py",
                    keys=("project", *TRAIN_KEYS)), stage_publish_models),
         Stage(StageSpec("deploy_space", ("app/*", "src/hub/deploy_space.py", "src/sim/*.py"), ("project",), True),

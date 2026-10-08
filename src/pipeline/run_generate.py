@@ -24,6 +24,7 @@ from src.data.generator import (
     write_parquet,
 )
 from src.data.reference_data import build_reference, reference_tables
+from src.data.scenarios import scenario_names
 from src.features.definitions import FEATURES
 from src.hub.publish import publish
 from src.models.preprocess import split_frames
@@ -213,6 +214,25 @@ def dataset_card(cfg: dict, wd: Path) -> str:
     ]
     for i, f in enumerate(FEATURES, 1):
         lines.append(f"| {i} | `{f.name}` | {f.kind} | {f.description} |")
+    cov = json.loads((wd / "gen/validation/coverage.json").read_text())
+    names = scenario_names(cfg)
+    lines += [
+        "",
+        "## Scenario coverage",
+        "",
+        f"Coverage report: **{'PASS' if cov['passed'] else 'FAIL'}**. Every scenario and every feature bin "
+        f"(levels for categoricals, quantile bins for numerics) has at least {cfg['coverage']['min_train']} "
+        f"failed and settled trades in train and {cfg['coverage']['min_eval']} in validation and test, with "
+        "documented exceptions. Full matrix: `reports/coverage_report.md`.",
+        "",
+        "| ID | Scenario | Share of trades | Fail rate |",
+        "|---|---|---|---|",
+        *[f"| {sid} | {names.get(sid, sid)} | {v['share']:.2%} | {v['fail_rate']:.2%} |"
+          for sid, v in summary["scenarios"].items() if v["fail_rate"] is not None],
+        "",
+        f"Test trades from counterparties never seen in training: "
+        f"{cov['time_coverage']['cold_start_test_share']:.2%}.",
+    ]
     lines += [
         "",
         "## Fail reasons (share of failed trades)",

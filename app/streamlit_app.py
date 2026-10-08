@@ -190,6 +190,31 @@ def tab_comparison() -> None:
     st.dataframe(df.style.format({c: "{:.3f}" for c in df.columns[2:]}).highlight_max(
         subset=["PR-AUC", "Recall top 2%"], color="#d9ead3"), hide_index=True)
 
+    st.markdown("#### The baseline: logistic regression")
+    st.markdown(
+        "Logistic regression adds up one weight per input on the log-odds scale. Numeric features are "
+        "standardized, so a weight is the change in log-odds for one standard deviation more; categorical "
+        "features get one weight per level. The **odds ratio** is exp(weight): above 1 raises the odds of failing. "
+        "It is fast, stable, and easy to audit, which makes it the baseline every other model has to beat. It "
+        "cannot capture interactions or curved effects unless they are built in by hand."
+    )
+    coef = pd.DataFrame(load_json("lr_coefficients.json"))
+    feats = features()
+    coef["Feature"] = [feats[f]["label"] + (f" = {lv}" if lv else "") for f, lv in zip(coef["feature"], coef["level"])]
+    n_show = st.slider("Largest coefficients shown", 8, len(coef), 16, key="lr_n")
+    top = coef.assign(a=coef["coefficient"].abs()).sort_values("a").tail(n_show)
+    fig = go.Figure(go.Bar(x=top["coefficient"], y=top["Feature"], orientation="h",
+                           marker_color=np.where(top["coefficient"] > 0, FAIL_COLOR, "#1f77b4"),
+                           customdata=np.stack([top["odds_ratio"], top["reading"]], axis=1),
+                           hovertemplate="%{y}<br>coefficient %{x:.3f}<br>odds ratio %{customdata[0]:.2f}<br>"
+                                         "%{customdata[1]}<extra></extra>"))
+    fig.update_layout(height=max(320, 22 * n_show), xaxis_title="Coefficient (log-odds)", margin=dict(t=20))
+    st.plotly_chart(fig, key="lr_coef")
+    st.dataframe(coef.sort_values("coefficient", key=np.abs, ascending=False)[["Feature", "coefficient", "odds_ratio",
+                                                                                "reading"]].head(10),
+                 hide_index=True, column_config={"coefficient": st.column_config.NumberColumn(format="%.3f"),
+                                                 "odds_ratio": st.column_config.NumberColumn("odds ratio", format="%.2f")})
+
     st.markdown("#### Precision-recall curves")
     picks = st.multiselect("Models", list(metrics), default=list(primary.values()), format_func=label, key="pr_models")
     fig = go.Figure()
