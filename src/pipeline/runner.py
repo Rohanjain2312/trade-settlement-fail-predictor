@@ -82,6 +82,7 @@ def write_current_run(workdir: Path, report: RunReporter, mode: str, git_commit:
                 "mode": mode,
                 "git_commit": git_commit,
                 "log_path": str(report.log_path),
+                "report_dir": str(report.dir),
             }
         )
     )

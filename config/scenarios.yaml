@@ -40,6 +40,7 @@ coverage:
   # Rows with their own minimums, each with a reason.
   overrides:
     H4: {settled: 30, reason: "H4 trades fail by design, so few of them settle"}
+    "cpty_type=corporate_treasury": {failed: 30, reason: "rare category by design (about 0.5% of trades); 100 validation fails would need about 1% of trades"}
   numeric_bins: 5           # quantile bins from the training split
   # Feature bins with no minimum in validation and test, each with a reason.
   eval_exempt_features:

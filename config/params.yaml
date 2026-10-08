@@ -27,7 +27,7 @@ data:
   missing_share:            # values blanked at random (data quality), the label uses the true value
     ssi_age_days: 0.015
     hours_to_confirmation: 0.02
-    allocation_delay_hrs: 0.01
+    allocation_delay_hrs: 0.015
     abs_price_deviation_bps: 0.02
     notional_vs_cpty_median: 0.01
   max_missing_share: 0.05

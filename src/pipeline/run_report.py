@@ -223,12 +223,13 @@ def report_crash(store: Store, workdir: Path) -> None:
     if not current.exists():
         return
     info = json.loads(current.read_text())
-    summary_path = Path(workdir) / "runs" / info["run_id"] / "summary.json"
+    report_dir = Path(info["report_dir"])
+    summary_path = report_dir / info["run_id"] / "summary.json"
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
     if summary.get("status") in ("failed", "passed"):
         return
     rep = RunReporter(
-        store, workdir, info["notebook"], info["mode"], info["git_commit"],
+        store, report_dir.parent, info["notebook"], info["mode"], info["git_commit"],
         Path(info["log_path"]), run_id=info["run_id"],
     )
     if summary:

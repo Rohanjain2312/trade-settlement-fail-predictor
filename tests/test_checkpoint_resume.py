@@ -337,3 +337,29 @@ def test_xgboost_resume_grows_the_same_trees(tmp_path):
     resumed, state = train_xgb.train(p, dtrain, dval, max_rounds=40, patience=1000, every=1000, resume=resume)
     assert state["next_iteration"] == 40
     np.testing.assert_allclose(resumed.predict(dval), straight.predict(dval), rtol=0, atol=1e-6)
+
+
+def test_crash_handler_keeps_a_real_failure_and_marks_a_silent_one(tmp_path):
+    """The notebook calls report_crash after a non-zero exit. It must not overwrite a report
+    that already holds a Python traceback, and must mark a run that died silently."""
+    from src.pipeline.run_report import report_crash
+    from src.pipeline.runner import write_current_run
+
+    reports = LocalDirStore(tmp_path / "reports")
+    mode_dir = tmp_path / "work" / "full"  # the reporter lives under the mode folder
+    rep = RunReporter(reports, mode_dir, "01_toy", "full", "c0ffee", mode_dir / "log.txt", run_id="r1")
+    write_current_run(tmp_path / "work", rep, "full", "c0ffee")
+    rep.fail("coverage", ValueError("2 coverage failures"))
+    report_crash(reports, tmp_path / "work")
+    latest = json.loads((reports.root / "runs/latest.json").read_text())
+    assert latest["failed_stage"] == "coverage" and "2 coverage failures" in latest["error"]
+
+    rep2 = RunReporter(reports, mode_dir, "01_toy", "full", "c0ffee", mode_dir / "log.txt", run_id="r2")
+    write_current_run(tmp_path / "work", rep2, "full", "c0ffee")
+    rep2.stage_start("generate")
+    rep2.push()
+    report_crash(reports, tmp_path / "work")
+    latest = json.loads((reports.root / "runs/latest.json").read_text())
+    assert latest["run_id"] == "r2" and latest["status"] == "failed" and "without a Python traceback" in latest["error"]
+    summary = json.loads((reports.root / "runs/r2/summary.json").read_text())
+    assert "generate" in summary["stages"]  # the progress so far is kept
