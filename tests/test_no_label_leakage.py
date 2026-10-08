@@ -39,3 +39,21 @@ def test_no_single_feature_reveals_the_label(smoke_data):
         x = np.where(np.isnan(x), np.nanmedian(x), x)
         auc = roc_auc_score(y, x)
         assert max(auc, 1 - auc) < 0.85, f"{name} alone separates the label (AUC {auc:.3f})"
+
+
+def test_splits_follow_time_with_a_gap_and_nothing_straddles_a_boundary(smoke_data):
+    import numpy as np
+
+    from src.models.preprocess import split_frames
+
+    df, cfg = smoke_data.df, smoke_data.cfg
+    s = split_frames(df, cfg)
+    all_days = np.sort(df["trade_date"].unique())
+    for a, b in (("train", "val"), ("val", "test")):
+        assert s[a]["trade_date"].max() < s[b]["trade_date"].min()
+        # Business days between the two splits that belong to neither: at least the configured gap.
+        skipped = ((all_days > s[a]["trade_date"].max()) & (all_days < s[b]["trade_date"].min())).sum()
+        assert skipped >= cfg["split"]["gap_days"]
+        # Every earlier-split trade has settled before the later split starts.
+        assert s[a]["settle_date"].max() < s[b]["trade_date"].min()
+    assert not set(s["train"]["trade_id"]) & set(s["test"]["trade_id"])
