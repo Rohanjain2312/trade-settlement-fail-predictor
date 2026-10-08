@@ -70,7 +70,7 @@ effects:
   pair_history_trades_90d: {weight: 0.5, scale_trades: 10.0}    # w * exp(-n / scale)
   security_fail_rate_30d: {weight: 0.45, scale: 0.02}           # w * log1p(rate / scale)
   corporate_action_in_window: {weight: 1.0}
-  notional_vs_cpty_median: {weight: 0.4}                        # w * max(0, log(x))
+  notional_vs_cpty_median: {weight: 0.3}                        # w * max(0, log(x))
   abs_price_deviation_bps: {weight: 0.25, scale_bps: 50.0}      # w * log1p(bps / scale)
   asset_class: {etf: 0.15, equity: 0.25, repo: 0.45, corporate_bond: 0.60}
   is_cross_border: {weight: 0.5}
@@ -85,7 +85,7 @@ interactions:
 
 hidden:
   cpty_latent_weight: 0.25      # unobserved counterparty risk (never a feature)
-  security_latent_weight: 0.20  # unobserved security propensity (never a feature)
+  security_latent_weight: 0.30  # unobserved security propensity (never a feature)
   noise_sd: 0.35                # per-trade noise on the log-odds
   auto_repair_prob: 0.35        # H1: an SSI break gets repaired in time
   late_borrow_prob: 0.35        # H2: a shortfall gets covered by a late borrow

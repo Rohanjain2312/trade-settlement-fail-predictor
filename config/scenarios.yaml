@@ -1,1 +1,31 @@
-# Scenario catalog, injector quotas, and coverage thresholds (filled in M4).
+# Scenario catalog. Each trade carries a bitmask (scenario_mask) of the scenarios it belongs to.
+# Membership is decided from the trade's actual situation, not from whether it was injected.
+# `quota` is the share of each day's trades an injector pushes into the condition. Injectors
+# only change features; the probability function still decides the label, so injected trades
+# are not forced to fail and hard negatives arise naturally.
+
+root_causes:
+  S1: {name: "SSI mismatch (account or BIC does not match)", quota: 0.012}
+  S2: {name: "SSI missing, or a stale record", quota: 0.010}
+  S3: {name: "Securities or funding shortfall", quota: 0.015}
+  S4: {name: "Late or missing confirmation", quota: 0.015}
+  S5: {name: "Chain cascade (an upstream fail breaks this trade)", quota: 0.012}
+  S6: {name: "Cross-border with a holiday or cutoff mismatch", quota: 0.012}
+  S7: {name: "Corporate action around settlement", quota: 0.015}
+  S8: {name: "Amendment churn and allocation delay", quota: 0.012}
+
+regimes:
+  R1: {name: "Calm baseline"}
+  R2: {name: "Volatility spike with a volume surge"}
+  R3: {name: "Month-end and quarter-end"}
+  R4: {name: "Holiday weeks"}
+  R5: {name: "Drift: SSI quality degrades, new counterparties (cold start)"}
+
+hard_negatives:
+  H1: {name: "SSI break auto-repaired in time (mostly settles)"}
+  H2: {name: "Shortfall covered by a late borrow (mostly settles)"}
+  H3: {name: "Large trade from a weak counterparty (mostly settles)"}
+  H4: {name: "Clean-looking trade that fails for no visible reason"}
+
+edge_cases:
+  extreme_size_quota: 0.002   # trade size 20x to 80x the counterparty median

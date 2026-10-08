@@ -41,6 +41,10 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pytest -m smoke -q || [ $? -eq 5 ]  # exit 5 = no smoke tests collected yet
 
+      - name: Generator diagnostics (smoke config)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python -m src.data.validate --mode smoke
+
       - name: Failure summary
         if: ${{ failure() }}
         run: |

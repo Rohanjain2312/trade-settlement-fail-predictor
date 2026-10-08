@@ -231,3 +231,56 @@ def test_failure_report_names_the_stage_and_redacts_tokens(tmp_path, monkeypatch
         if p.is_file():
             assert fake not in p.read_text()
     assert redact(f"token={fake} Authorization: Bearer abc") == "token=[REDACTED] Authorization: Bearer [REDACTED]"
+
+
+# ---- the real generator: month-by-month resume ---------------------------------------------
+
+
+def _tiny_generator_cfg():
+    from src.config import load_config
+
+    return load_config("smoke", overrides={
+        "data": {"n_days": 62, "trades_per_day": 60},
+        "reference": {"n_counterparties": 40, "n_securities": 300},
+    })
+
+
+def _run_generator(base: Path, cfg: dict, name: str):
+    from src.data.generator import generate_months
+    from src.data.reference_data import build_reference
+
+    work = LocalDirStore(base / "work_store")
+    workdir = base / f"session_{name}"
+    ckpt = Checkpoint(work, workdir, cfg, "testcommit", ["generate"])
+    ckpt.restore()
+    spec = StageSpec("generate", ("src/data/*.py",), ("seed", "data", "reference"))
+    ckpt.begin(spec)
+    outputs = generate_months(build_reference(cfg), cfg, -4.0, workdir, ckpt, "generate")
+    ckpt.finish("generate", outputs)
+    return work
+
+
+def test_generator_restart_continues_with_identical_data(tmp_path, monkeypatch):
+    from src.data import generator
+
+    cfg = _tiny_generator_cfg()
+    clean = _run_generator(tmp_path / "a", cfg, "clean")
+    assert len([p for p in clean.list_files() if p.startswith("gen/trades/")]) == 3
+
+    real_day = generator.generate_day
+    calls = []
+
+    def crashing_day(t, *a, **k):
+        calls.append(t)
+        if t == 30:  # inside the second month
+            raise InjectedCrash("runtime disconnected")
+        return real_day(t, *a, **k)
+
+    monkeypatch.setattr(generator, "generate_day", crashing_day)
+    with pytest.raises(InjectedCrash):
+        _run_generator(tmp_path / "b", cfg, "first")
+    calls.clear()
+    monkeypatch.setattr(generator, "generate_day", lambda t, *a, **k: (calls.append(t), real_day(t, *a, **k))[1])
+    resumed = _run_generator(tmp_path / "b", cfg, "second")
+    assert min(calls) == 21  # month 1 (21 business days) was not generated again
+    assert _store_digest(resumed) == _store_digest(clean)

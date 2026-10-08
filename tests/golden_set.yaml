@@ -1,0 +1,98 @@
+# Hand-written trades that check the planted probability function responds in the expected
+# direction. Each case changes a clean baseline trade, then compares its log-odds with the
+# baseline (or with another case named in `vs`). expect: higher | lower | same.
+baseline:
+  ssi_match_status: matched
+  ssi_age_days: 30
+  instruction_hour_bucket: business_hours
+  hours_to_confirmation: 0.5
+  amendment_count: 0
+  allocation_delay_hrs: 0
+  chain_depth: 0
+  obligation_coverage_ratio: 1.2
+  cpty_fail_rate_30d: 0.01
+  cpty_type: custodian
+  pair_history_trades_90d: 80
+  security_fail_rate_30d: 0.01
+  corporate_action_in_window: 0
+  notional_vs_cpty_median: 0.8
+  abs_price_deviation_bps: 5
+  asset_class: government_bond
+  is_cross_border: 0
+  market_volatility_level: 13
+  holiday_in_settlement_window: 0
+  is_period_end: 0
+
+cases:
+  # S1 SSI mismatch
+  - {id: s1_mismatch, scenario: S1, change: {ssi_match_status: mismatch}, expect: higher}
+  - {id: s1_s6_mismatch_cross_border, scenario: S1+S6, change: {ssi_match_status: mismatch, is_cross_border: 1}, expect: higher, vs: s1_mismatch}
+  - {id: s1_mismatch_vs_cross_border_only, scenario: S1, change: {ssi_match_status: mismatch}, expect: higher, vs: s6_cross_border}
+  # S2 SSI missing or stale
+  - {id: s2_missing, scenario: S2, change: {ssi_match_status: missing}, expect: higher}
+  - {id: s2_stale_400, scenario: S2, change: {ssi_age_days: 400}, expect: higher}
+  - {id: s2_stale_900, scenario: S2, change: {ssi_age_days: 900}, expect: higher, vs: s2_stale_400}
+  - {id: s2_age_capped, scenario: S2, change: {ssi_age_days: 5000}, expect: same, vs: s2_age_cap_value}
+  - {id: s2_age_cap_value, scenario: S2, change: {ssi_age_days: 1100}, expect: higher, vs: s2_stale_900}
+  # S3 shortfall
+  - {id: s3_shortfall_half, scenario: S3, change: {obligation_coverage_ratio: 0.5}, expect: higher}
+  - {id: s3_shortfall_deep, scenario: S3, change: {obligation_coverage_ratio: 0.2}, expect: higher, vs: s3_shortfall_half}
+  - {id: s3_boundary_exactly_one, scenario: edge, change: {obligation_coverage_ratio: 1.0}, expect: same}
+  - {id: s3_just_below_one, scenario: edge, change: {obligation_coverage_ratio: 0.99}, expect: higher, vs: s3_boundary_exactly_one}
+  - {id: s3_shortfall_scarce_security, scenario: S3, change: {obligation_coverage_ratio: 0.5, security_fail_rate_30d: 0.15}, expect: higher, vs: s3_shortfall_half_scarce_only}
+  - {id: s3_shortfall_half_scarce_only, scenario: S3, change: {security_fail_rate_30d: 0.15}, expect: higher}
+  # S4 late or missing confirmation
+  - {id: s4_late_30h, scenario: S4, change: {hours_to_confirmation: 30}, expect: higher}
+  - {id: s4_late_60h, scenario: S4, change: {hours_to_confirmation: 60}, expect: higher, vs: s4_late_30h}
+  - {id: s4_overnight_late, scenario: S4+overnight, change: {hours_to_confirmation: 30, instruction_hour_bucket: overnight}, expect: higher, vs: s4_late_30h}
+  - {id: s4_overnight_fast_confirm, scenario: S4+overnight, change: {instruction_hour_bucket: overnight}, expect: lower, vs: s4_overnight_late}
+  # S5 chain cascade
+  - {id: s5_chain_3, scenario: S5, change: {chain_depth: 3}, expect: higher}
+  - {id: s5_chain_6, scenario: S5, change: {chain_depth: 6}, expect: higher, vs: s5_chain_3}
+  - {id: s3_s5_shortfall_and_chain, scenario: S3+S5, change: {obligation_coverage_ratio: 0.5, chain_depth: 3}, expect: higher, vs: s3_shortfall_half}
+  # S6 cross-border, holiday or cutoff
+  - {id: s6_cross_border, scenario: S6, change: {is_cross_border: 1}, expect: higher}
+  - {id: s6_cross_border_holiday, scenario: S6, change: {is_cross_border: 1, holiday_in_settlement_window: 1}, expect: higher, vs: s6_cross_border}
+  - {id: s6_cross_border_late, scenario: S6, change: {is_cross_border: 1, instruction_hour_bucket: late}, expect: higher, vs: s6_cross_border}
+  # S7 corporate action
+  - {id: s7_corporate_action, scenario: S7, change: {corporate_action_in_window: 1}, expect: higher}
+  # S8 amendments and allocation
+  - {id: s8_amend_4, scenario: S8, change: {amendment_count: 4}, expect: higher}
+  - {id: s8_amend_10, scenario: S8, change: {amendment_count: 10}, expect: higher, vs: s8_amend_4}
+  - {id: s8_alloc_24h, scenario: S8, change: {allocation_delay_hrs: 24}, expect: higher}
+  - {id: s8_amend_and_alloc, scenario: S8, change: {amendment_count: 4, allocation_delay_hrs: 24}, expect: higher, vs: s8_alloc_24h}
+  # Instruction timing
+  - {id: hour_overnight, scenario: S6, change: {instruction_hour_bucket: overnight}, expect: higher}
+  - {id: hour_early, scenario: S6, change: {instruction_hour_bucket: early_morning}, expect: higher}
+  - {id: hour_late, scenario: S6, change: {instruction_hour_bucket: late}, expect: higher}
+  # Counterparty
+  - {id: cpty_recent_fails, scenario: R5, change: {cpty_fail_rate_30d: 0.15}, expect: higher}
+  - {id: cpty_hedge_fund, scenario: R1, change: {cpty_type: hedge_fund}, expect: higher}
+  - {id: cpty_rare_corporate_treasury, scenario: edge, change: {cpty_type: corporate_treasury}, expect: higher, vs: cpty_hedge_fund}
+  - {id: pair_first_ever, scenario: edge, change: {pair_history_trades_90d: 0}, expect: higher}
+  - {id: pair_very_familiar, scenario: R1, change: {pair_history_trades_90d: 400}, expect: lower}
+  # Security and trade economics
+  - {id: sec_scarce, scenario: S3, change: {security_fail_rate_30d: 0.12}, expect: higher}
+  - {id: size_10x, scenario: edge, change: {notional_vs_cpty_median: 10}, expect: higher}
+  - {id: size_80x, scenario: edge, change: {notional_vs_cpty_median: 80}, expect: higher, vs: size_10x}
+  - {id: size_small, scenario: R1, change: {notional_vs_cpty_median: 0.3}, expect: same}
+  - {id: size_cold_start_missing, scenario: R5, change: {notional_vs_cpty_median: .nan}, expect: same}
+  - {id: price_off_market, scenario: edge, change: {abs_price_deviation_bps: 300}, expect: higher}
+  - {id: class_corporate_bond, scenario: R1, change: {asset_class: corporate_bond}, expect: higher}
+  - {id: class_repo, scenario: R1, change: {asset_class: repo}, expect: higher}
+  # Market and calendar
+  - {id: vol_spike, scenario: R2, change: {market_volatility_level: 40}, expect: higher}
+  - {id: vol_below_floor, scenario: R1, change: {market_volatility_level: 10}, expect: same}
+  - {id: period_end, scenario: R3, change: {is_period_end: 1}, expect: higher}
+  - {id: holiday_window, scenario: R4, change: {holiday_in_settlement_window: 1}, expect: higher}
+  # Hard-negative looking trades (the label can still settle; the score must still rise)
+  - {id: h3_large_weak_cpty, scenario: H3, change: {notional_vs_cpty_median: 5, cpty_fail_rate_30d: 0.08}, expect: higher, vs: size_small}
+  - {id: h1_mismatch_matched_again, scenario: H1, change: {ssi_match_status: matched}, expect: same}
+  # Everything at once is the riskiest trade in the set
+  - {id: worst_case, scenario: combined, change: {ssi_match_status: mismatch, is_cross_border: 1, obligation_coverage_ratio: 0.2, security_fail_rate_30d: 0.15, hours_to_confirmation: 60, instruction_hour_bucket: overnight, chain_depth: 6, amendment_count: 10}, expect: higher, vs: s1_s6_mismatch_cross_border}
+  # Hidden events (never visible in the features)
+  - {id: h1_auto_repaired, scenario: H1, change: {ssi_match_status: mismatch}, hidden: {auto_repair: true}, expect: lower, vs: s1_mismatch}
+  - {id: h1_repaired_still_above_clean, scenario: H1, change: {ssi_match_status: mismatch}, hidden: {auto_repair: true}, expect: higher}
+  - {id: h2_late_borrow, scenario: H2, change: {obligation_coverage_ratio: 0.5}, hidden: {late_borrow: true}, expect: lower, vs: s3_shortfall_half}
+  - {id: h2_borrow_without_shortfall, scenario: H2, change: {}, hidden: {late_borrow: true}, expect: same}
+  - {id: h4_unexplained, scenario: H4, change: {}, hidden: {unexplained: true}, expect: higher}
