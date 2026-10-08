@@ -40,3 +40,8 @@ Rules for anyone (human or agent) changing this repo.
 - Simplest code that meets the spec. No speculative abstractions or configuration.
 - Do not delete or weaken a test to make CI pass. If a test is wrong, fix it and say why in the commit message.
 - Plain wording in docs. Say plainly that data is synthetic. Do not present any external business figures as results of this project.
+
+## Re-running a changed stage
+- A stage's code hash covers its listed source modules, not the stage function inside `src/pipeline/run_*.py`.
+  After changing a stage function there, set `from_stage` in `config/run.yaml` to that stage, and reset it
+  to `null` after the run.
