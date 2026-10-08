@@ -98,15 +98,20 @@ def expanded_feature_names() -> list[str]:
     return names + list(NUMERIC)
 
 
-def stratified_subsample(X: pd.DataFrame, y: np.ndarray, n: int, seed: int):
-    """Keep the class ratio while taking n rows (all rows if there are fewer)."""
+def stratified_index(y: np.ndarray, n: int, seed: int) -> np.ndarray:
+    """Sorted row positions of a sample of n rows that keeps the class ratio (all rows if
+    there are fewer). Sorting keeps the rows in time order."""
     if len(y) <= n:
-        return X, y
+        return np.arange(len(y))
     rng = np.random.default_rng(seed)
     idx = []
     for cls in (0, 1):
         rows = np.flatnonzero(y == cls)
         take = int(round(n * len(rows) / len(y)))
         idx.append(rng.choice(rows, size=min(take, len(rows)), replace=False))
-    idx = np.sort(np.concatenate(idx))
+    return np.sort(np.concatenate(idx))
+
+
+def stratified_subsample(X: pd.DataFrame, y: np.ndarray, n: int, seed: int):
+    idx = stratified_index(y, n, seed)
     return X.iloc[idx].reset_index(drop=True), y[idx]

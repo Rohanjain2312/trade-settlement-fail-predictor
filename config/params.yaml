@@ -106,12 +106,30 @@ split:
 train:
   require_gpu: true
   ops_capacity_share: 0.02  # share of daily trades ops can work, sets the alert threshold
-  # Which resampling variants to train for each model family. The first one is the
-  # published default (logreg.joblib, svm_linear_calibrated.joblib, xgb_model.json).
+  # Resampling variants trained for each model family (the three-way comparison). The first
+  # one is the published default (logreg.joblib, svm_*_calibrated.joblib, xgb_model.json).
   models:
-    logreg: [none]
-    svm_linear: [smote]
-    xgb: [scale_pos_weight]
+    logreg: [none, class_weight, smote]
+    svm_linear: [smote, none, class_weight]
+    svm_rbf: [smote, class_weight, none]
+    xgb: [scale_pos_weight, none, smote]
+  # Optuna: time-series CV inside the training period on a stratified subsample, maximizing
+  # PR-AUC. Each (family, variant) gets its own study, saved to SQLite in the work repo.
+  tune:
+    rows: 200000
+    folds: 3
+    save_every: 5
+    trials: {logreg: 12, svm_linear: 12, svm_rbf: 10, xgb: 25}
+    rbf_rows: 30000          # kernel SVM cost grows with the square of the rows
+  svm_rbf:
+    subsample_rows: 150000   # final fit with cuML on the GPU
+    cpu_subsample_rows: 20000  # fallback when cuML is not available
+  heldout_scenarios: [S1, S3, S5]
+  shap:
+    chunk_rows: 100000
+    interaction_rows: 10000
+    app_rows: 5000           # rows shipped to the app for beeswarm and dependence plots
+  # Defaults, replaced by the tuned values.
   logreg: {C: 1.0}
   svm_linear: {C: 0.05}
   xgb:

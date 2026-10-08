@@ -24,6 +24,18 @@ split:
 
 train:
   require_gpu: false
+  tune:
+    rows: 8000
+    trials: {logreg: 3, svm_linear: 3, svm_rbf: 2, xgb: 4}
+    rbf_rows: 3000
+    save_every: 2
+  svm_rbf:
+    subsample_rows: 6000
+    cpu_subsample_rows: 6000
+  shap:
+    chunk_rows: 2000
+    interaction_rows: 1000
+    app_rows: 1000
   xgb:
     max_rounds: 300
     patience: 30

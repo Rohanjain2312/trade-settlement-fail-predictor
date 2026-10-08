@@ -97,21 +97,27 @@ def test_dataset_was_published(smoke_run):
 
 
 def test_xgboost_resumed_from_its_checkpoint(smoke_run):
-    resumes = smoke_run["calls"]["resumed_xgb"]
-    assert resumes[0] is None and resumes[-1] is not None
-    assert resumes[-1][1]["next_iteration"] > 0
+    resumes = [r for r in smoke_run["calls"]["resumed_xgb"] if r is not None]
+    assert len(resumes) == 1, "exactly one boosting run resumed from a checkpoint"
+    assert resumes[0][1]["next_iteration"] > 0
 
 
 def test_models_metrics_and_reports_were_published(smoke_run):
     stores = smoke_run["stores"]
     files = set(stores["model"].list_files())
-    for f in ("README.md", "logreg.joblib", "svm_linear_calibrated.joblib", "xgb_model.json",
-              "feature_schema.json", "metrics.json", "preprocessor.joblib"):
+    for f in ("README.md", "logreg.joblib", "svm_linear_calibrated.joblib", "svm_rbf_calibrated.joblib",
+              "xgb_model.json", "xgb_calibrated.joblib", "feature_schema.json", "metrics.json",
+              "preprocessor.joblib", "shap/shap_vs_truth.json", "shap/global_importance.json",
+              "shap/interaction_summary.json", "heldout/S1.json"):
         assert f in files
     metrics = json.loads((stores["model"].root / "metrics.json").read_text())
+    assert len(metrics["models"]) == 12  # 4 model families x 3 resampling variants
     for m in metrics["models"].values():
         assert 0.0 < m["test"]["pr_auc"] <= 1.0
         assert m["test"]["pr_auc"] > m["test"]["base_rate"]  # better than random ranking
+        assert "S1" in m["per_scenario"] and "S1+S6" in m["per_scenario"]
+    truth = json.loads((stores["model"].root / "shap/shap_vs_truth.json").read_text())
+    assert len(truth["rows"]) == 20 and -1 <= truth["spearman"] <= 1
     latest = json.loads((stores["reports"].root / "runs/latest.json").read_text())
     assert latest["status"] == "passed" and latest["notebook"] == "02_train_explain"
     assert any(p.startswith("runs/smoke_passed/02_train_explain_") for p in stores["reports"].list_files())
