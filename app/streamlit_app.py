@@ -74,7 +74,7 @@ def pct_small(x: float) -> str:
 
 def line_style(name: str) -> dict:
     family, resampling = name.split("__")
-    return dict(color=FAMILY_COLOR[family], dash=DASH[resampling])
+    return dict(color=FAMILY_COLOR[family], dash=DASH[resampling], width=2.5)
 
 
 # ---- tab 1: data and features ------------------------------------------------------------------
@@ -250,7 +250,7 @@ def tab_comparison() -> None:
     higher_better = [c for c in df.columns[2:] if c not in ("Brier", "Accuracy")]
     st.dataframe(df.style.format({c: "{:.3f}" for c in df.columns[2:]})
                  .highlight_max(subset=higher_better, props=HIGHLIGHT)
-                 .highlight_min(subset=["Brier"], props=HIGHLIGHT), hide_index=True)
+                 .highlight_min(subset=["Brier"], props=HIGHLIGHT), hide_index=True, height=35 * (len(df) + 1) + 3)
     st.markdown(
         "- **PR-AUC**: how well the model puts the real fails at the top of its risk list. 1 is perfect; picking "
         f"trades at random scores about {base['base_rate']:.3f}, the test fail rate.\n"
@@ -561,8 +561,9 @@ def svm_score_to_probability(v: dict) -> None:
     sample = load_parquet("app_sample.parquet")
     rand = sample[~sample["pool"]]
     score = rand["score__svm_linear_raw"]
+    band = pd.qcut(score, 15, duplicates="drop")
     bands = (pd.DataFrame({"score": score, "failed": rand["failed"].astype(float)})
-             .groupby(pd.qcut(score, 15, duplicates="drop"), observed=True)
+             .groupby(band, observed=True)
              .agg(score=("score", "mean"), rate=("failed", "mean"), trades=("failed", "size")))
     fig = go.Figure()
     fig.add_scatter(x=bands["score"], y=bands["rate"], mode="markers", name="Test trades: share that failed",
@@ -579,15 +580,19 @@ def svm_score_to_probability(v: dict) -> None:
         xs = np.linspace(score.quantile(0.001), score.quantile(0.999), 100)
         fig.add_scatter(x=xs, y=curve(xs), mode="lines", name="S-curve fitted on validation (Platt scaling)",
                         line=dict(color=AMBER, width=3))
-        gap = float(np.mean(bands["rate"].to_numpy() - curve(bands["score"])))
+        # Compare each band's fail rate with its average predicted probability (not the curve at the band's
+        # mean score, which differs where the curve bends).
+        pred = pd.Series(curve(score), index=score.index).groupby(band, observed=True).mean().to_numpy()
+        diff = bands["rate"].to_numpy() - pred
+        worst = int(np.argmax(np.abs(diff)))
         text += (f" With this model a score of 0 means about {pct(float(curve(0)))}, a score of 1 about {pct(float(curve(1)))}, "
                  f"and a score of 2 about {pct(float(curve(2)))}.\n\nEach dot is a group of test trades with similar scores, "
-                 "placed at how often they really failed. "
-                 + ("On average the dots sit above the curve: the test months are more stressed than the validation "
-                    "months the curve was fitted on, which is why a real system refits it after drift." if gap > 0.005
-                    else "On average the dots sit below the curve: the test months fail less often than the "
-                    "validation months the curve was fitted on." if gap < -0.005
-                    else "The dots sit close to the curve, so the translation holds on months it never saw."))
+                 "placed at how often they really failed. Where a dot sits on the curve, the translation holds on months "
+                 "the curve never saw. "
+                 + ("Every dot is within 2 points of the curve." if np.abs(diff).max() <= 0.02
+                    else f"The biggest gap is for trades scoring about {bands['score'].iloc[worst]:.1f}: "
+                    f"{pct(bands['rate'].iloc[worst])} of them failed, against {pct(pred[worst])} predicted. A curve fitted "
+                    "on one period drifts on the next, which is why a real system checks it on new months and refits it."))
     fig.update_layout(height=360, margin=dict(t=20), yaxis=dict(title="Chance of failing", tickformat=".0%"),
                       xaxis_title=f"Raw SVM score, {label(v['svm_model'])} (above 0: fail side of the line)")
     st.plotly_chart(fig, key="svm_scores")
