@@ -29,8 +29,13 @@ FAMILY = {"logreg": "Logistic regression", "svm_linear": "Linear SVM", "svm_rbf"
 RESAMPLING = {"none": "no resampling", "class_weight": "class weights", "scale_pos_weight": "class weights",
               "smote": "SMOTENC"}
 REASON = {"ssi_problem": "SSI problem", "shortfall": "Shortfall", "unmatched": "Unmatched", "other": "Other"}
-FAIL_COLOR, SETTLE_COLOR, SYNTH_COLOR = "#d62728", "#7f7f7f", "#ff9f1c"
+# Colors are chosen to read on both the light and the dark Streamlit theme.
+FAIL_COLOR, SETTLE_COLOR, SYNTH_COLOR, AMBER = "#e45756", "#4c78a8", "#ff9f1c", "#ff9f1c"
+FAIL_FILL, SETTLE_FILL, AMBER_FILL = "rgba(228,87,86,0.28)", "rgba(76,120,168,0.28)", "rgba(255,159,28,0.35)"
+HIGHLIGHT = "background-color: #2e7d32; color: #ffffff; font-weight: 600"
 STRENGTH_COLOR = {"strong": "#1f4e79", "medium": "#5b9bd5", "weak": "#bdd7ee"}
+FAMILY_COLOR = {"logreg": "#4c78a8", "svm_linear": "#f58518", "svm_rbf": "#b279a2", "xgb": "#54a24b"}
+DASH = {"none": "solid", "class_weight": "dash", "scale_pos_weight": "dash", "smote": "dot"}
 
 
 # ---- loading -----------------------------------------------------------------------------------
@@ -60,6 +65,16 @@ def features() -> dict[str, dict]:
 
 def pct(x: float) -> str:
     return f"{x:.1%}"
+
+
+def pct_small(x: float) -> str:
+    """Like pct, with two decimals below 1% so a tiny share does not read as 0.0%."""
+    return f"{x:.2%}" if 0 < x < 0.01 else pct(x)
+
+
+def line_style(name: str) -> dict:
+    family, resampling = name.split("__")
+    return dict(color=FAMILY_COLOR[family], dash=DASH[resampling])
 
 
 # ---- tab 1: data and features ------------------------------------------------------------------
@@ -141,28 +156,75 @@ def tab_data() -> None:
         "per-scenario evaluation, never as a model input."
     )
     real = cov["realism"]
-    fig = go.Figure()
     reasons = list(real["reason_mix"])
-    fig.add_bar(x=[REASON[r] for r in reasons], y=[real["reason_mix"][r] for r in reasons], name="Generated",
-                marker_color="#1f4e79")
+    causes = [REASON[r] for r in reasons]
+    share = [real["reason_mix"][r] for r in reasons]
     lo = [real["targets"]["reason_share"][r][0] for r in reasons]
     hi = [real["targets"]["reason_share"][r][1] for r in reasons]
-    fig.add_scatter(x=[REASON[r] for r in reasons], y=[(a + b) / 2 for a, b in zip(lo, hi)], mode="markers",
-                    name="Target range (public sources)", marker=dict(color="black", symbol="line-ew-open", size=18),
-                    error_y=dict(type="data", array=[(b - a) / 2 for a, b in zip(lo, hi)]))
-    fig.update_layout(height=300, yaxis_tickformat=".0%", title="Root-cause mix of fails versus rough public ranges",
-                      margin=dict(t=40, b=30))
+    st.markdown("#### Why trades fail: share of fails by root cause")
+    fig = go.Figure()
+    fig.add_bar(x=causes, y=[b - a for a, b in zip(lo, hi)], base=lo, width=0.5, customdata=hi,
+                name="Rough range from public sources", marker=dict(color=AMBER_FILL, line=dict(color=AMBER, width=1.5)),
+                hovertemplate="%{x}: public range %{base:.0%} to %{customdata:.0%}<extra></extra>")
+    fig.add_scatter(x=causes, y=share, mode="markers+text", name="This dataset", text=[pct(v) for v in share],
+                    textposition="middle right", marker=dict(color=SETTLE_COLOR, size=14, line=dict(width=1.5, color="white")),
+                    hovertemplate="%{x}: %{y:.1%} of fails<extra></extra>")
+    fig.update_layout(height=320, yaxis_tickformat=".0%", yaxis_title="Share of all fails", yaxis_rangemode="tozero",
+                      margin=dict(t=20, b=30))
     st.plotly_chart(fig, key="realism")
+    outside = [REASON[r] for r, v, a, b in zip(reasons, share, lo, hi) if not a <= v <= b]
+    st.caption(
+        "When a trade fails, what caused it? The dot is this dataset's share of fails for each root cause; the shaded "
+        "bar is the rough range reported in public industry sources. "
+        + (f"All {len(reasons)} causes fall inside their range." if not outside
+           else f"Outside the range: {', '.join(outside)}.")
+    )
     t = cov["time"]
     st.caption(
-        f"Fail rate {pct(real['fail_rate'])} (public figures put euro-area fails near 2 to 3%). "
-        f"{pct(t['cold_start_test_share'])} of test trades come from counterparties never seen in training. "
-        "Out of scope: partial settlements, buy-ins, regulation-specific penalty mechanics, market-wide outages. "
-        "Real production data always contains cases nobody planned for."
+        f"Overall, {pct(real['fail_rate'])} of trades fail; public figures for euro-area markets put this near 2 to 3%. "
+        f"{pct(t['cold_start_test_share'])} of test trades come from counterparties the models never saw in training. "
+        "Not modeled: partial settlements, buy-ins, the penalty rules of specific regulations, and market-wide outages. "
+        "Real data always contains cases nobody planned for."
     )
 
 
 # ---- tab 2: model comparison -------------------------------------------------------------------
+
+def _times(m: float) -> str:
+    return f"{m:.1f}x" if m >= 2 else f"{m:.2f}x"
+
+
+def lr_multipliers(coef: pd.DataFrame, feats: dict, bins: dict) -> pd.DataFrame:
+    """LR weights as odds multipliers in plain terms, largest effect first.
+
+    Categorical levels are compared with the level the model rates safest (one-hot keeps every level, so
+    only differences within a feature are meaningful). Binary flags compare yes with no, converted from the
+    standardized weight with the flag's share of trades. Numeric features are read at one standard deviation.
+    """
+    rows = []
+    for f, g in coef.groupby("feature", sort=False):
+        lab, kind = feats[f]["label"], feats[f]["kind"]
+        if kind == "categorical":
+            safe = g.loc[g["coefficient"].idxmin()]
+            ref = safe["level"].replace("_", " ")
+            for _, r in g.drop(index=safe.name).iterrows():
+                w, lv = r["coefficient"] - safe["coefficient"], r["level"].replace("_", " ")
+                rows.append((f"{lab}: {lv} (vs {ref})", w, f"{lv} has {_times(np.exp(w))} the odds of failing of {ref}"))
+        elif kind == "binary":
+            counts = {b["bin"]: b["trades"] for b in bins[f]}
+            p = counts.get("1", 0) / max(1, sum(counts.values()))
+            w = g["coefficient"].iloc[0] / np.sqrt(p * (1 - p)) if 0 < p < 1 else g["coefficient"].iloc[0]
+            rows.append((f"{lab}: yes (vs no)", w, f"yes has about {_times(np.exp(w))} the odds of failing of no "
+                                                   "(approximate: converted using the share of trades flagged)"))
+        else:
+            w = g["coefficient"].iloc[0]
+            rows.append((f"{lab}: notably higher", w, f"one standard deviation above average multiplies the odds "
+                                                      f"of failing by {_times(np.exp(w))}"))
+    out = pd.DataFrame(rows, columns=["Factor", "Weight (log-odds)", "What it means"])
+    out["multiplier"] = np.exp(out["Weight (log-odds)"])
+    out["Odds multiplier"] = out["multiplier"].map(_times)
+    return out.sort_values("Weight (log-odds)", key=np.abs, ascending=False).reset_index(drop=True)
+
 
 def tab_comparison() -> None:
     metrics = load_json("metrics.json")["models"]
@@ -171,11 +233,9 @@ def tab_comparison() -> None:
     note()
     base = next(iter(metrics.values()))["test"]
     st.markdown(
-        f"Only **{pct(base['base_rate'])}** of test trades fail, so always predicting *settles* scores "
-        f"**{pct(base['accuracy_if_always_settles'])} accuracy** while catching nothing. The table therefore leads "
-        "with ranking metrics: **PR-AUC** (precision against recall over all thresholds), **recall in the top 1% "
-        "and 2%** of trades by score (how many fails ops would see if they worked only that share), recall at "
-        "fixed precision, and the **Brier score** (how good the probabilities are; lower is better)."
+        f"Only **{pct(base['base_rate'])}** of test trades fail, so a model that always says *settles* is "
+        f"**{pct(base['accuracy_if_always_settles'])} accurate** and catches nothing. The table therefore leads with "
+        "metrics about catching fails. The best value in each column is highlighted."
     )
     show_all = st.toggle("Show every resampling variant", value=True, key="all_variants")
     names = list(metrics) if show_all else list(primary.values())
@@ -187,43 +247,64 @@ def tab_comparison() -> None:
         "Recall @ precision 0.7": metrics[n]["test"]["recall_at_precision_70"],
         "Brier": metrics[n]["test"]["brier"], "Accuracy": metrics[n]["test"]["accuracy"],
     } for n in names])
-    st.dataframe(df.style.format({c: "{:.3f}" for c in df.columns[2:]}).highlight_max(
-        subset=["PR-AUC", "Recall top 2%"], color="#d9ead3"), hide_index=True)
+    higher_better = [c for c in df.columns[2:] if c not in ("Brier", "Accuracy")]
+    st.dataframe(df.style.format({c: "{:.3f}" for c in df.columns[2:]})
+                 .highlight_max(subset=higher_better, props=HIGHLIGHT)
+                 .highlight_min(subset=["Brier"], props=HIGHLIGHT), hide_index=True)
+    st.markdown(
+        "- **PR-AUC**: how well the model puts the real fails at the top of its risk list. 1 is perfect; picking "
+        f"trades at random scores about {base['base_rate']:.3f}, the test fail rate.\n"
+        "- **Recall top 1% / top 2%**: if ops check only the riskiest 1% (or 2%) of trades, the share of all fails "
+        "they catch.\n"
+        "- **Recall @ precision 0.5 / 0.7**: the share of fails caught while at least half (or 7 in 10) of the "
+        "flagged trades really fail.\n"
+        "- **Brier**: how close the predicted probabilities are to what actually happened; lower is better. Scores "
+        "are calibrated on the validation months, so a score of 10% means about 1 in 10 such trades fail.\n"
+        "- **Accuracy**: the share of trades called right at the alert cutoff. It mostly rewards saying *settles*, "
+        "which is right for almost every trade, so it is not used to pick a model."
+    )
 
     st.markdown("#### The baseline: logistic regression")
     st.markdown(
-        "Logistic regression adds up one weight per input on the log-odds scale. Numeric features are "
-        "standardized, so a weight is the change in log-odds for one standard deviation more; categorical "
-        "features get one weight per level. The **odds ratio** is exp(weight): above 1 raises the odds of failing. "
-        "It is fast, stable, and easy to audit, which makes it the baseline every other model has to beat. It "
-        "cannot capture interactions or curved effects unless they are built in by hand."
+        "Logistic regression is the simplest model here. It gives every factor a fixed push up or down on the odds "
+        "of failing and adds the pushes together. The chart shows each push as a **multiplier on the odds**: *3x* "
+        "means three times the odds of failing, *0.5x* half. A category (such as SSI status) is compared with its "
+        "option the model rates safest, a yes/no flag compares yes with no, and a number is compared at a clearly "
+        "higher than usual value (one standard deviation above average). Red raises risk, blue lowers it.\n\n"
+        "It is fast, stable, and easy to audit, so it is the baseline the other models have to beat. What it cannot "
+        "see on its own is that two problems together can be worse than each one alone."
     )
-    coef = pd.DataFrame(load_json("lr_coefficients.json"))
-    feats = features()
-    coef["Feature"] = [feats[f]["label"] + (f" = {lv}" if lv else "") for f, lv in zip(coef["feature"], coef["level"])]
-    n_show = st.slider("Largest coefficients shown", 8, len(coef), 16, key="lr_n")
-    top = coef.assign(a=coef["coefficient"].abs()).sort_values("a").tail(n_show)
-    fig = go.Figure(go.Bar(x=top["coefficient"], y=top["Feature"], orientation="h",
-                           marker_color=np.where(top["coefficient"] > 0, FAIL_COLOR, "#1f77b4"),
-                           customdata=np.stack([top["odds_ratio"], top["reading"]], axis=1),
-                           hovertemplate="%{y}<br>coefficient %{x:.3f}<br>odds ratio %{customdata[0]:.2f}<br>"
-                                         "%{customdata[1]}<extra></extra>"))
-    fig.update_layout(height=max(320, 22 * n_show), xaxis_title="Coefficient (log-odds)", margin=dict(t=20))
+    mult = lr_multipliers(pd.DataFrame(load_json("lr_coefficients.json")), features(), load_json("feature_bins.json"))
+    n_show = st.slider("Largest factors shown", 8, len(mult), min(16, len(mult)), key="lr_n")
+    top = mult.head(n_show).iloc[::-1]
+    lw = np.log(top["multiplier"].to_numpy())
+    ticks = [t for t in (0.25, 0.5, 1, 2, 4, 8, 16) if min(0, lw.min()) - 0.5 <= np.log(t) <= max(0, lw.max()) + 0.5]
+    fig = go.Figure(go.Bar(x=lw, y=top["Factor"], orientation="h", marker_color=np.where(lw > 0, FAIL_COLOR, SETTLE_COLOR),
+                           text=top["Odds multiplier"], textposition="outside", cliponaxis=False, customdata=top["What it means"],
+                           hovertemplate="%{y}<br>%{customdata}<extra></extra>"))
+    fig.update_layout(height=max(320, 24 * n_show), margin=dict(t=20), xaxis=dict(
+        title="Multiplier on the odds of failing (1x = no effect)", tickvals=np.log(ticks).tolist(),
+        ticktext=[f"{t:g}x" for t in ticks], range=[min(0, lw.min()) - 0.5, max(0, lw.max()) + 0.5]))
     st.plotly_chart(fig, key="lr_coef")
-    st.dataframe(coef.sort_values("coefficient", key=np.abs, ascending=False)[["Feature", "coefficient", "odds_ratio",
-                                                                                "reading"]].head(10),
-                 hide_index=True, column_config={"coefficient": st.column_config.NumberColumn(format="%.3f"),
-                                                 "odds_ratio": st.column_config.NumberColumn("odds ratio", format="%.2f")})
+    st.dataframe(mult.head(10)[["Factor", "Odds multiplier", "What it means", "Weight (log-odds)"]], hide_index=True,
+                 column_config={"Weight (log-odds)": st.column_config.NumberColumn(format="%.3f")})
 
     st.markdown("#### Precision-recall curves")
+    st.markdown(
+        "Picture ops sorting all trades from riskiest to safest by the model's score and working down the list. "
+        "Moving right, they have caught more of the fails (**recall**). The height is the share of the trades worked "
+        "so far that really fail (**precision**); low means many false alarms. A curve that stays higher is better: "
+        "more fails caught for the same effort. The dotted line is what picking trades at random would give."
+    )
     picks = st.multiselect("Models", list(metrics), default=list(primary.values()), format_func=label, key="pr_models")
     fig = go.Figure()
     for n in picks:
         c = metrics[n]["test"]["pr_curve"]
-        fig.add_scatter(x=c["recall"], y=c["precision"], mode="lines", name=label(n))
-    fig.add_hline(y=base["base_rate"], line_dash="dot", annotation_text="random ranking")
-    fig.update_layout(height=380, xaxis_title="Recall (share of fails caught)", yaxis_title="Precision",
-                      margin=dict(t=20))
+        fig.add_scatter(x=c["recall"], y=c["precision"], mode="lines", name=label(n), line=line_style(n))
+    fig.add_hline(y=base["base_rate"], line_dash="dot", annotation_text="random picking",
+                  annotation_position="top left")
+    fig.update_layout(height=380, xaxis_title="Recall: share of all fails caught so far",
+                      yaxis_title="Precision: share of worked trades that fail", margin=dict(t=20))
     st.plotly_chart(fig, key="pr_curves")
 
     st.markdown("#### Does SMOTE help? No resampling vs class weights vs SMOTENC")
@@ -254,29 +335,6 @@ def tab_comparison() -> None:
         "SMOTE changes where a model draws its default decision line, which matters when a model is used with "
         "its own threshold (see the SVM tab). Ranking quality is what PR-AUC measures, and class weights reach "
         "the same goal without inventing data. SMOTE only ever runs on training rows, inside the pipeline."
-    )
-
-    st.markdown("#### Calibration: can the score be read as a probability?")
-    cal_pick = st.selectbox("Model", list(metrics), index=list(metrics).index(primary["xgb"]), format_func=label,
-                            key="cal_model")
-    m = metrics[cal_pick]
-    fig = go.Figure()
-    fig.add_scatter(x=[0, 0.5], y=[0, 0.5], mode="lines", line=dict(dash="dot", color="gray"), name="perfect")
-    cc = m["test"]["calibration_curve"]
-    fig.add_scatter(x=cc["mean_predicted"], y=cc["fraction_failed"], mode="lines+markers", name="calibrated")
-    if "calibration_curve" in m["raw_test"]:
-        rc = m["raw_test"]["calibration_curve"]
-        fig.add_scatter(x=rc["mean_predicted"], y=rc["fraction_failed"], mode="lines+markers", name="raw model output")
-    fig.update_layout(height=360, xaxis_title="Predicted fail probability (bin average)",
-                      yaxis_title="Observed fail rate", margin=dict(t=20))
-    st.plotly_chart(fig, key="calibration")
-    raw_brier = m["raw_test"].get("brier")
-    st.caption(
-        f"Brier score after calibration {m['test']['brier']:.4f}"
-        + (f", raw {raw_brier:.4f}." if raw_brier is not None else ". SVMs output a margin, not a probability, so "
-           "they have no raw curve: Platt scaling on the validation set turns the margin into a probability.")
-        + " Calibration is fitted on validation data only. The test period is more stressed than validation, "
-        "so some miscalibration remains: a real-world reason to recalibrate after drift."
     )
 
     st.markdown("#### Where each model is strong or weak: per scenario")
@@ -310,6 +368,24 @@ def tab_comparison() -> None:
 
 # ---- tab 3: how the SVM works -----------------------------------------------------------------
 
+def _boundary_traces(grid: dict, decision, margins: bool = True) -> list:
+    """Red and blue predicted regions, the boundary as a solid amber line, and the margin edges dashed."""
+    z = np.asarray(decision, dtype=float)
+    xy = dict(x=grid["x"], y=grid["y"], showscale=False, hoverinfo="skip")
+    amber = [[0, AMBER], [1, AMBER]]
+    traces = [
+        go.Heatmap(z=(z > 0).astype(int), zmin=0, zmax=1, zsmooth="best",
+                   colorscale=[[0, SETTLE_FILL], [1, FAIL_FILL]], **xy),
+        go.Contour(z=z, autocontour=False, contours=dict(coloring="lines", start=0, end=0.5, size=1), colorscale=amber,
+                   line=dict(width=3), **xy),
+    ]
+    if margins:
+        traces.append(go.Contour(z=z, autocontour=False, contours=dict(coloring="lines", start=-1, end=1, size=2),
+                                 colorscale=amber,
+                                 line=dict(width=1.5, dash="dash"), **xy))
+    return traces
+
+
 def tab_svm() -> None:
     v = load_json("svm_views.json")
     b = v["boundary"]
@@ -332,18 +408,17 @@ def tab_svm() -> None:
              (kernel == "linear" or x["gamma"] == gamma))
     pts = b["points"]
     y = np.array(pts["failed"])
-    fig = go.Figure()
-    fig.add_contour(x=b["grid"]["x"], y=b["grid"]["y"], z=s["decision"], colorscale="RdBu_r", opacity=0.35,
-                    contours=dict(start=-3, end=3, size=0.5), showscale=False, hoverinfo="skip")
-    fig.add_contour(x=b["grid"]["x"], y=b["grid"]["y"], z=s["decision"], showscale=False, hoverinfo="skip",
-                    contours=dict(coloring="lines", start=-1, end=1, size=1), line=dict(width=2, color="black"))
+    px, py = np.array(pts["x"]), np.array(pts["y"])
+    sv = np.zeros(len(y), dtype=bool)
+    sv[s["support"]] = True
+    fig = go.Figure(_boundary_traces(b["grid"], s["decision"]))
     for cls, name, color in ((0, "settled", SETTLE_COLOR), (1, "failed", FAIL_COLOR)):
-        m = y == cls
-        fig.add_scatter(x=np.array(pts["x"])[m], y=np.array(pts["y"])[m], mode="markers", name=name,
-                        marker=dict(color=color, size=5, opacity=0.6))
-    sv = np.array(s["support"])
-    fig.add_scatter(x=np.array(pts["x"])[sv], y=np.array(pts["y"])[sv], mode="markers", name="support vectors",
-                    marker=dict(size=10, color="rgba(0,0,0,0)", line=dict(width=1.5, color="black")))
+        m = (y == cls) & ~sv
+        fig.add_scatter(x=px[m], y=py[m], mode="markers", name=f"{name}, other trades", legendgroup=name,
+                        marker=dict(color=color, size=5, opacity=0.18))
+        m = (y == cls) & sv
+        fig.add_scatter(x=px[m], y=py[m], mode="markers", name=f"{name}, support vectors", legendgroup=name,
+                        marker=dict(color=color, size=7, opacity=0.95, line=dict(width=0.6, color="white")))
     fig.update_layout(height=480, xaxis_title=f"{b['labels'][0]} (standardized)",
                       yaxis_title=f"{b['labels'][1]} (standardized)", margin=dict(t=20))
     st.plotly_chart(fig, key="svm_boundary")
@@ -352,8 +427,15 @@ def tab_svm() -> None:
     m2.metric("Train accuracy", pct(s["train_accuracy"]))
     m3.metric("Holdout accuracy", pct(s["holdout_accuracy"]))
     m4.metric("Holdout PR-AUC", f"{s['holdout_pr_auc']:.3f}")
-    st.caption("Solid lines: the boundary (0) and the margin edges (-1 and +1). Circled trades are support vectors. "
-               "This illustration uses a balanced sample, so accuracy here is meaningful; on real class balance it is not.")
+    band = ("The row of dots at one height is trades that are exactly fully covered (coverage ratio 1), which is "
+            "nearly half of all trades. " if "obligation_coverage_ratio" in b["features"] else "")
+    st.caption(
+        "The solid amber line is the boundary: trades in the red area are predicted to fail, trades in the blue area "
+        "to settle. The dashed amber lines are the edges of the margin. Bright dots are the support vectors, the only "
+        "trades that decide where the line goes; the faded dots could move and nothing would change. Fails and "
+        "settled trades overlap a lot, so many trades end up as support vectors. " + band
+        + "The sample is balanced, so accuracy here is meaningful; at the real 3% fail rate it is not."
+    )
 
     st.markdown("#### C and gamma: under- and overfitting")
     rbf = [x for x in b["settings"] if x["kernel"] == "rbf"]
@@ -364,9 +446,8 @@ def tab_svm() -> None:
     for i, g in enumerate(gammas):
         for j, c in enumerate(Cs):
             x = next(t for t in rbf if t["C"] == c and t["gamma"] == g)
-            fig.add_trace(go.Contour(x=b["grid"]["x"], y=b["grid"]["y"], z=x["decision"], colorscale="RdBu_r",
-                                     showscale=False, contours=dict(start=-2, end=2, size=1), opacity=0.6,
-                                     hoverinfo="skip"), row=i + 1, col=j + 1)
+            for trace in _boundary_traces(b["grid"], x["decision"], margins=False):
+                fig.add_trace(trace, row=i + 1, col=j + 1)
     fig.update_layout(height=560, margin=dict(t=40), font=dict(size=10))
     st.plotly_chart(fig, key="svm_grid")
     fig = go.Figure()
@@ -411,47 +492,106 @@ def tab_svm() -> None:
     )
     lk = v["leakage"]
     st.markdown("#### Why SMOTE runs only on training data")
-    c1, c2 = st.columns(2)
-    c1.metric("SMOTE on training rows only", f"{lk['median_distance_right']:.2f}",
-              help="Median distance from a test fail to its nearest synthetic fail")
-    c2.metric("SMOTE before the split (wrong)", f"{lk['median_distance_wrong']:.2f}",
-              delta=f"{(lk['ratio'] - 1):.0%}" if lk["ratio"] else None, delta_color="inverse")
     st.markdown(
-        "If SMOTE runs **before** the split, synthetic fails are built from test fails, so training data contains "
-        "near copies of the test set and the scores look better than they are. Here the median distance from a "
-        "test fail to the nearest synthetic point shrinks sharply when it is done the wrong way. In this project "
-        "SMOTENC is a step inside an `imblearn` pipeline, so it runs only when the pipeline is fitted, on training "
-        "rows or training folds:"
+        "SMOTE makes extra fail examples by blending pairs of real fails that look alike. If that happens **before** "
+        "the test months are set aside, some blends are made from test fails. The model then trains on near copies "
+        "of the trades it is later tested on, like seeing the exam answers in advance, and its test score looks "
+        "better than it will be on truly new trades.\n\n"
+        "The two numbers measure that: the typical distance from a test fail to the closest made-up fail. Far means "
+        "the model never saw anything like that trade; close to zero means it trained on a near copy."
     )
-    st.code("Pipeline([\n  ('encode', ordinal-encode categoricals + median-impute numerics),\n"
-            "  ('smote',  SMOTENC(categorical_features=[0, 1, 2, 3])),  # fit only\n"
-            "  ('expand', one-hot encode + scale),\n  ('model',  LinearSVC(...)),\n])", language="text")
+    c1, c2 = st.columns(2)
+    c1.metric("SMOTE on training rows only (right)", f"{lk['median_distance_right']:.2f}",
+              help="Median distance from a test fail to its nearest synthetic fail, in standardized units")
+    c2.metric("SMOTE before the split (wrong)", f"{lk['median_distance_wrong']:.2f}",
+              delta=f"{(lk['ratio'] - 1):.0%} (leak)" if lk["ratio"] else None, delta_color="normal",
+              help="Median distance from a test fail to its nearest synthetic fail, in standardized units")
+    st.markdown("In this project SMOTE is built into the training step itself, so it can only ever see training data.")
+    with st.expander("How the pipeline enforces this"):
+        st.markdown("SMOTENC is a step inside an `imblearn` pipeline, so it runs only when the pipeline is fitted, "
+                    "on training rows or training folds, and never when the pipeline scores validation or test trades.")
+        st.code("Pipeline([\n  ('encode', ordinal-encode categoricals + median-impute numerics),\n"
+                "  ('smote',  SMOTENC(categorical_features=[0, 1, 2, 3])),  # fit only\n"
+                "  ('expand', one-hot encode + scale),\n  ('model',  LinearSVC(...)),\n])", language="text")
 
-    st.markdown("#### Why SVM scores need calibrating, and what SMOTE did for the SVM")
-    sample = load_parquet("app_sample.parquet")
-    sample = sample[~sample["pool"]]
+    svm_default_rule(v)
+    svm_score_to_probability(v)
+
+
+def svm_default_rule(v: dict) -> None:
+    """What each linear SVM flags with its own yes/no rule (score above 0), before any calibration."""
+    st.markdown("#### What SMOTE did for the SVM")
+    dt = {d["model"].split("__")[1]: d for d in v["default_threshold"]}
+    keys = [k for k in ("none", "class_weight", "smote") if k in dt]
+    names = [RESAMPLING[k][0].upper() + RESAMPLING[k][1:] for k in keys]
     fig = go.Figure()
-    for cls, name, color in ((0, "settled", SETTLE_COLOR), (1, "failed", FAIL_COLOR)):
-        fig.add_histogram(x=sample.loc[sample["failed"] == cls, "score__svm_linear_raw"], name=name, opacity=0.65,
-                          marker_color=color, histnorm="probability density", nbinsx=60)
+    for field, name, color in (("flag_rate", "Trades flagged as 'will fail'", AMBER), ("recall", "Fails caught", FAIL_COLOR)):
+        vals = [dt[k][field] for k in keys]
+        fig.add_bar(x=names, y=vals, name=name, marker_color=color, text=[pct_small(x) for x in vals],
+                    textposition="outside", hovertemplate="%{x}: %{text}<extra></extra>")
+    fig.update_layout(barmode="group", height=340, yaxis=dict(title="Share", tickformat=".0%", range=[0, 1.12]),
+                      xaxis_title="Linear SVM trained with", margin=dict(t=20))
+    st.plotly_chart(fig, key="svm_default_rule")
+    st.dataframe(pd.DataFrame([{"Linear SVM trained with": n, "Trades flagged": pct_small(dt[k]["flag_rate"]),
+                                "Fails caught": pct_small(dt[k]["recall"]),
+                                "Flags that were real fails": pct_small(dt[k]["precision"])}
+                               for n, k in zip(names, keys)]), hide_index=True)
+    if "none" in dt and "smote" in dt:
+        train_rate = load_json("data_summary.json")["splits"]["train"]["fail_rate"]
+        pr = {m["resampling"]: m["test"]["pr_auc"] for m in load_json("metrics.json")["models"].values()
+              if m["family"] == "svm_linear"}
+        other = max(x for k, x in pr.items() if k != "smote")
+        n0, s0 = dt["none"], dt["smote"]
+        st.markdown(
+            "An SVM answers yes or no: is the trade on the fail side of its line? Trained on the real mix, where only "
+            f"{pct(train_rate)} of training trades fail, the line ends up so far over that the SVM almost never says "
+            f"*fail*: it flagged {pct_small(n0['flag_rate'])} of test trades and caught {pct_small(n0['recall'])} of "
+            f"the fails. Trained with SMOTE, the same yes/no rule flags {pct(s0['flag_rate'])} of trades and catches "
+            f"{pct(s0['recall'])} of the fails, though only {pct(s0['precision'])} of those flags are real fails.\n\n"
+            "That is what SMOTE is good for: it makes the SVM's own yes/no answer usable. In this project trades are "
+            "ranked by score instead, and for ranking SMOTE "
+            + ("helped" if pr["smote"] > other else "did not help")
+            + f" the linear SVM (PR-AUC {pr['smote']:.3f} with SMOTE, {other:.3f} for the best version without it)."
+        )
+
+
+def svm_score_to_probability(v: dict) -> None:
+    """Raw linear SVM scores against how often test trades with those scores failed, with the Platt curve."""
+    st.markdown("#### Turning an SVM score into a probability")
+    sample = load_parquet("app_sample.parquet")
+    rand = sample[~sample["pool"]]
+    score = rand["score__svm_linear_raw"]
+    bands = (pd.DataFrame({"score": score, "failed": rand["failed"].astype(float)})
+             .groupby(pd.qcut(score, 15, duplicates="drop"), observed=True)
+             .agg(score=("score", "mean"), rate=("failed", "mean"), trades=("failed", "size")))
+    fig = go.Figure()
+    fig.add_scatter(x=bands["score"], y=bands["rate"], mode="markers", name="Test trades: share that failed",
+                    marker=dict(color=FAIL_COLOR, size=10, line=dict(width=1, color="white")), customdata=bands["trades"],
+                    hovertemplate="score about %{x:.2f}<br>%{y:.1%} failed<br>%{customdata} trades<extra></extra>")
     platt = v.get("platt")
+    text = ("The raw SVM score is not a probability. It says how far a trade sits from the line, and on which side: "
+            "below 0 is the settle side, above 0 the fail side. To turn it into a chance of failing, a simple S-shaped "
+            "curve is fitted on the validation months (this is called Platt scaling).")
     if platt:
-        xs = np.linspace(sample["score__svm_linear_raw"].quantile(0.001), sample["score__svm_linear_raw"].quantile(0.999), 100)
-        fig.add_scatter(x=xs, y=1 / (1 + np.exp(platt["a"] * xs + platt["b"])), name="Platt: probability", yaxis="y2",
-                        line=dict(color="black"))
-    fig.update_layout(barmode="overlay", height=360, xaxis_title=f"Raw SVM score ({label(v['svm_model'])})",
-                      yaxis2=dict(overlaying="y", side="right", range=[0, 1], title="calibrated probability"),
-                      margin=dict(t=20))
+        def curve(x):
+            return 1 / (1 + np.exp(platt["a"] * np.asarray(x, dtype=float) + platt["b"]))
+
+        xs = np.linspace(score.quantile(0.001), score.quantile(0.999), 100)
+        fig.add_scatter(x=xs, y=curve(xs), mode="lines", name="S-curve fitted on validation (Platt scaling)",
+                        line=dict(color=AMBER, width=3))
+        gap = float(np.mean(bands["rate"].to_numpy() - curve(bands["score"])))
+        text += (f" With this model a score of 0 means about {pct(float(curve(0)))}, a score of 1 about {pct(float(curve(1)))}, "
+                 f"and a score of 2 about {pct(float(curve(2)))}.\n\nEach dot is a group of test trades with similar scores, "
+                 "placed at how often they really failed. "
+                 + ("On average the dots sit above the curve: the test months are more stressed than the validation "
+                    "months the curve was fitted on, which is why a real system refits it after drift." if gap > 0.005
+                    else "On average the dots sit below the curve: the test months fail less often than the "
+                    "validation months the curve was fitted on." if gap < -0.005
+                    else "The dots sit close to the curve, so the translation holds on months it never saw."))
+    fig.update_layout(height=360, margin=dict(t=20), yaxis=dict(title="Chance of failing", tickformat=".0%"),
+                      xaxis_title=f"Raw SVM score, {label(v['svm_model'])} (above 0: fail side of the line)")
     st.plotly_chart(fig, key="svm_scores")
-    st.dataframe(pd.DataFrame([{"Raw SVM": label(d["model"]), "Flags (score > 0)": pct(d["flag_rate"]),
-                                "Recall": pct(d["recall"]), "Precision": pct(d["precision"])}
-                               for d in v["default_threshold"]]), hide_index=True)
-    st.caption(
-        "An SVM outputs a distance from the boundary, not a probability, so Platt scaling (a logistic curve fitted on "
-        "validation data) maps it to one. The table shows each raw SVM with its own decision rule: trained on "
-        "the natural 3% fail rate, the boundary flags almost nothing. SMOTE (or class weights) moves the boundary "
-        "so the default rule flags enough trades. Once scores are ranked or calibrated, that advantage goes away."
-    )
+    st.markdown(text)
 
 
 # ---- tab 4: XGBoost and SHAP -------------------------------------------------------------------
