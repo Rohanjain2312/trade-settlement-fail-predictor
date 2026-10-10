@@ -14,6 +14,7 @@ regression as the baseline, a support vector machine trained with SMOTE, and XGB
 | Models, metrics, run reports | https://huggingface.co/rohanjain2312/trade-settlement-fail-predictor |
 | Static results (fallback if the Space is down) | [RESULTS.md](https://huggingface.co/rohanjain2312/trade-settlement-fail-predictor/blob/main/report/RESULTS.md) |
 | The 20 features | [docs/FEATURES.md](docs/FEATURES.md) |
+| Article: what I'd do differently, in plain English | [docs/blog/predicting-trade-settlement-fails.md](docs/blog/predicting-trade-settlement-fails.md) |
 
 [![Open notebook 01 in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Rohanjain2312/trade-settlement-fail-predictor/blob/main/notebooks/01_generate_data.ipynb)
 Notebook 01: generate, validate, and publish the data (CPU)
