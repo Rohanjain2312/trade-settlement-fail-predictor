@@ -1,7 +1,8 @@
 <!--
 Medium draft, version 2 (2026-10-09). These notes do not show on GitHub and are not part of the article.
-- Images: download them from the links in the article and upload them to Medium. Keep the captions.
-- Cover image: the precision-recall chart.
+- Images: upload the PNGs in docs/blog/images to Medium in the places marked below. Keep the captions.
+- Cover image: images/cover.png.
+- Medium has no table support: replace each markdown table with its image (table1_model_results.png, table2_new_fails.png).
 - Tags (5): Machine Learning, Data Science, Imbalanced Data, XGBoost, Fintech.
 - Publish as a free story (not member-only), so recruiters can read it.
 - Every number comes from the final full run in report/RESULTS.md on the Hugging Face model repo.
@@ -68,10 +69,15 @@ Data leakage is when information from the future, or from the test set, sneaks i
 
 **3. SMOTE before the split.** SMOTE creates fake failed trades by placing new points on the line between a real fail and a similar one. (SMOTENC is the version that also handles categories.)
 
-![SMOTE draws new fake fails on the line between real fails](https://huggingface.co/rohanjain2312/trade-settlement-fail-predictor/resolve/main/report/smote.png)
-*Red: real fails. Orange: fake fails made by SMOTE, each between two real ones. Synthetic data.*
+![How SMOTE makes fake fails](images/fig1_smote_how.png)
+*SMOTE fills the gaps between real fails with fake ones. Illustration.*
 
-Run SMOTE on the full dataset before splitting, and some fake trades are built from test trades, so the model trains on near copies of the test set. I measured it: the typical test fail had a fake fail **about 30 times closer** to it (median distance 0.07 versus 2.19) than when SMOTE ran on training data only. The fix is to make SMOTE a step inside the model pipeline, so it only runs during training:
+Run SMOTE on the full dataset before splitting, and some fake trades are built from test trades, so the model trains on near copies of the test set. I measured it: the typical test fail had a fake fail **about 30 times closer** to it (median distance 0.07 versus 2.19) than when SMOTE ran on training data only.
+
+![SMOTE before the split puts fake fails right next to test fails](images/fig2_smote_leak.png)
+*The smaller the distance, the more the model has effectively seen the test set. Synthetic data.*
+
+The fix is to make SMOTE a step inside the model pipeline, so it only runs during training:
 
 ```python
 from imblearn.pipeline import Pipeline
@@ -101,10 +107,20 @@ The `imblearn` Pipeline also keeps cross-validation safe: SMOTE only sees the tr
 
 **Logistic regression**, the simple baseline, is easy to read: a mismatched instruction multiplies the odds of failing by about 8.7. It did well (PR-AUC 0.305) because most of my recipe is a simple sum of effects, but on its own it can't see combinations like wrong account details **and** cross-border.
 
-![Precision-recall curves on the test period](https://huggingface.co/rohanjain2312/trade-settlement-fail-predictor/resolve/main/report/pr_curves.png)
-*Higher is better. XGBoost (red) stays on top; the dotted line is a random list. Synthetic data.*
+![Precision-recall curves on the test period](images/fig3_pr_curves.png)
+*XGBoost (blue) stays on top across most of the list. Synthetic data, test period.*
 
-On the test period, **XGBoost reached a PR-AUC of 0.333**, about 7 times better than a random list. In the riskiest 2% of trades it caught **23%** of all fails. The best SVM (RBF with class weights) scored 0.319. Every model was tuned with Optuna, which searches for good settings automatically without peeking at the future.
+| Model | Best training setup | PR-AUC | Fails caught in riskiest 2% of trades | Brier score |
+|---|---|---|---|---|
+| Random list | | 0.045 | 2% | |
+| Logistic regression | No resampling | 0.305 | 21% | 0.037 |
+| Linear SVM | No resampling | 0.296 | 20% | 0.037 |
+| RBF SVM | Class weights | 0.319 | 22% | 0.036 |
+| **XGBoost** | No resampling | **0.333** | **23%** | **0.035** |
+
+*Test period, synthetic data. Higher is better for PR-AUC and fails caught; lower is better for the Brier score (after calibration).*
+
+**XGBoost reached a PR-AUC of 0.333**, about 7 times better than a random list, and caught **23%** of all fails in the riskiest 2% of trades. Every model was tuned with Optuna, which searches for good settings automatically without peeking at the future.
 
 **What I'd do differently:** start with XGBoost for table-shaped data, with logistic regression as the baseline to beat.
 
@@ -124,10 +140,10 @@ When ops see a flagged trade, the first question is "why?" **SHAP** answers that
 
 Because I wrote the recipe, I could check SHAP against the truth. It ranked the features in almost the same order (a **rank correlation of 0.96**, where 1.0 is a perfect match), and out of 190 possible feature pairs it ranked the **three planted combinations #1, #2, and #3**.
 
-![SHAP importance compared with the planted truth](https://huggingface.co/rohanjain2312/trade-settlement-fail-predictor/resolve/main/report/shap_vs_truth.png)
-*Blue: what the model learned (SHAP). Orange: the true recipe. Synthetic data.*
+![SHAP importance compared with the true recipe](images/fig4_shap_vs_truth.png)
+*Gray: the true recipe. Blue: what the model learned. Synthetic data.*
 
-The gaps make sense: **counterparty fail rate** also stands in for hidden counterparty risk, so it ranked higher, and **market turbulence** ranked lower because the test period's spike went beyond anything trees saw in training.
+The gaps make sense: **counterparty fail rate** also stands in for hidden counterparty risk, so it ranked higher, and **market volatility** ranked lower because the test period's spike went beyond anything trees saw in training.
 
 **What I'd do differently:** ship every alert with its reasons, turned into actions like "fix the account details". An SVM gives a score; XGBoost with SHAP also gives the why.
 
@@ -135,14 +151,28 @@ The gaps make sense: **counterparty fail rate** also stands in for hidden counte
 
 A cutoff that flagged 2% of trades in the validation period flagged **6.8%** in the test period, which includes a market spike. That's more than three times what ops planned for. A better rule: each day, flag the **top k trades**, where k is the number the team can actually check.
 
+![A fixed cutoff flagged 3 times more trades in the stressed test period](images/fig5_daily_alerts.png)
+*The same cutoff, two different periods. Synthetic data.*
+
 In a simple what-if (ops check 2% of trades a day and fix 60% of the fails they reach), ranking with XGBoost cut pending fails by about **12%** versus no ranking. That's a simulation on synthetic data, not a measured result.
 
 **What I'd do differently:** let team capacity set the number of daily alerts, and watch for drift.
 
 ## Limits
 
-- **New kinds of fails.** With wrong-account-details cases removed from training, the model caught 27% of them instead of 45%. Label new problems and retrain.
-- **Synthetic data.** It shows the method, not real-world performance.
+**New kinds of fails.** To test this, I removed one kind of fail from training at a time and checked how many of them the model still caught in the test period:
+
+| Kind of fail | Caught when it was in training | Caught when it was never seen |
+|---|---|---|
+| Wrong account details | 45% | 27% |
+| Short on shares or cash | 35% | 14% |
+| Upstream trade failed first (chain) | 30% | 25% |
+
+*Share of that kind of fail caught within the daily alert limit. Synthetic data, test period.*
+
+The model only partly recognizes a cause it has never seen, so when a new kind of problem shows up, label it and retrain.
+
+**Synthetic data.** It shows the method, not real-world performance.
 
 ## Try it yourself
 
