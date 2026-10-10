@@ -1,7 +1,7 @@
 <!--
 Medium draft, version 1 (2026-10-09). These notes do not show on GitHub and are not part of the article.
 - Images: download them from the links in the article and upload them to Medium. Keep the captions.
-- Cover image: the resampling chart.
+- Cover image: the precision-recall chart.
 - Tags (5): Machine Learning, Data Science, Imbalanced Data, XGBoost, Fintech.
 - Publish as a free story (not member-only), so recruiters can read it.
 - Every number comes from the final full run in report/RESULTS.md on the Hugging Face model repo.
@@ -21,7 +21,7 @@ So I rebuilt it from scratch. One important note before we start: **every trade 
 
 Here is the short version of what I'd change:
 
-1. **Skip SMOTE. Use class weights and choose my own cutoff.** SMOTE lost to class weights in every model I tried.
+1. **Handle rare fails with class weights and my own cutoff**, instead of creating fake trades with SMOTE.
 2. **Use XGBoost instead of an SVM**, with logistic regression as a simple baseline to beat.
 3. **Turn scores into real probabilities** (calibration), using data the model never trained on.
 4. **Explain every alert with SHAP**, so the operations team knows what to fix.
@@ -111,38 +111,6 @@ Because this is an `imblearn` Pipeline, it also stays safe during cross-validati
 
 **What I'd do differently:** turn each of these rules into an automated test. In this project, the build fails if a feature uses a future outcome, if a trade straddles a split, or if SMOTE touches anything but training data. Good habits are great. Tests are better.
 
-## The big surprise: SMOTE didn't help
-
-I trained four kinds of models (logistic regression, a linear SVM, a curved "RBF" SVM, and XGBoost), each in three ways:
-
-- **No resampling:** train on the data as it is.
-- **Class weights:** tell the model that missing a fail costs much more than a false alarm. No fake data.
-- **SMOTE:** add fake fails until the two classes are balanced.
-
-![Test PR-AUC by model and resampling method](https://huggingface.co/rohanjain2312/trade-settlement-fail-predictor/resolve/main/report/resampling.png)
-*SMOTE (green) was never the best option for any model. Synthetic data, test period.*
-
-| Model | No resampling | Class weights | SMOTE |
-|---|---|---|---|
-| Logistic regression | 0.305 | 0.288 | 0.244 |
-| Linear SVM | 0.296 | 0.290 | 0.245 |
-| RBF SVM | 0.213 | 0.319 | 0.218 |
-| XGBoost | 0.333 | 0.332 | 0.189 |
-
-*PR-AUC on the test period. Higher is better; a random list scores about 0.045.*
-
-Class weights beat SMOTE in every model. For XGBoost, SMOTE dropped PR-AUC from 0.333 to 0.189.
-
-So why did SMOTE look so useful back then? Because it changes something else: **how willing the model is to say "fail".**
-
-A linear SVM trained on the raw data, where only 3% of trades fail, almost never says "fail". With its built-in cutoff, it flagged just 0.01% of trades and caught 0.2% of the fails. After SMOTE, the same model flagged 39% of trades and caught 84% of the fails. That looks like a huge improvement.
-
-But SMOTE didn't make the model better at telling risky trades from safe ones. It mostly moved the cutoff. You can get the same effect without inventing any data: keep the model's scores and choose the cutoff yourself. (And no ops team can check 39% of all trades anyway. More on that below.)
-
-This is one dataset, and it is synthetic, so SMOTE may still help elsewhere, for example on very small datasets. But it's worth testing instead of assuming.
-
-**What I'd do differently:** use class weights (or nothing), then choose the cutoff on purpose. Fake data adds training time and leakage risk, and here it bought nothing.
-
 ## From SVM to XGBoost
 
 **How an SVM works.** Picture fails and non-fails as dots on a page. An SVM draws the widest possible street between the two groups. Only the dots right at the edge of the street, the "support vectors", decide where the street goes. The RBF version can draw curvy streets instead of straight ones.
@@ -224,7 +192,7 @@ I also built a small simulator to show the effect. Under assumptions I chose (op
 
 | Decision | What I'd do now | Why |
 |---|---|---|
-| Rare fails | Class weights, then choose the cutoff | SMOTE lost to class weights in every model |
+| Rare fails | Class weights, then choose the cutoff | No fake data, and the cutoff is set on purpose |
 | Model | XGBoost, with logistic regression as the baseline | Best ranking, finds combinations, scales to millions of rows |
 | Scores | Calibrate on validation data | Ops need probabilities they can trust |
 | Explanations | SHAP reasons for every alert | Tells ops what to fix first |
